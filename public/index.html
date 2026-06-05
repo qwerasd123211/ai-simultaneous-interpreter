@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 同声传译助手</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🎙️</span>
+        <h1>AI 同声传译助手</h1>
+      </div>
+      <p class="subtitle">实时语音翻译，打破语言障碍</p>
+    </header>
+
+    <!-- 主要内容 -->
+    <main class="main">
+      <!-- 上传区域 -->
+      <section class="upload-section">
+        <div class="section-header">
+          <h2>📁 上传音频</h2>
+          <p>支持 MP3、WAV、MP4 等格式</p>
+        </div>
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">📤</div>
+          <p>拖拽文件到此处或点击上传</p>
+          <input type="file" id="fileInput" accept="audio/*,video/mp4" hidden>
+          <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+            选择文件
+          </button>
+        </div>
+        <div class="file-info" id="fileInfo" style="display: none;">
+          <span class="file-name" id="fileName"></span>
+          <span class="file-size" id="fileSize"></span>
+        </div>
+      </section>
+
+      <!-- 控制区域 -->
+      <section class="control-section">
+        <div class="control-buttons">
+          <button class="btn btn-primary" id="startBtn" onclick="startTranslation()" disabled>
+            ▶️ 开始翻译
+          </button>
+          <button class="btn btn-secondary" id="pauseBtn" onclick="pauseTranslation()" disabled>
+            ⏸️ 暂停
+          </button>
+          <button class="btn btn-danger" id="stopBtn" onclick="stopTranslation()" disabled>
+            ⏹️ 停止
+          </button>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="status" id="status">等待上传音频文件...</div>
+      </section>
+
+      <!-- 字幕显示区域 -->
+      <section class="subtitle-section">
+        <div class="section-header">
+          <h2>📺 实时字幕</h2>
+          <div class="subtitle-controls">
+            <button class="btn-small" onclick="clearSubtitles()">清空</button>
+            <button class="btn-small" onclick="exportSubtitles()">导出</button>
+          </div>
+        </div>
+        <div class="subtitle-container" id="subtitleContainer">
+          <div class="subtitle-placeholder">
+            等待翻译开始...
+          </div>
+        </div>
+      </section>
+
+      <!-- 历史记录 -->
+      <section class="history-section">
+        <div class="section-header">
+          <h2>📝 翻译历史</h2>
+          <button class="btn-small" onclick="clearHistory()">清空历史</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <div class="history-placeholder">
+            暂无翻译记录
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+      <p>AI 同声传译助手 - 七牛云实训项目</p>
+      <p class="footer-tech">Node.js + DeepSeek API + WebSocket</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

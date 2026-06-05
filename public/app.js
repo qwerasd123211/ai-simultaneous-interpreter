@@ -1,23 +1,19 @@
 /**
  * LINGUA // AI 同声传译助手
- * 前端交互逻辑
+ * 前端交互逻辑 - 实时音频捕获版本
  */
 
 // 全局状态
 let isTranslating = false;
 let isPaused = false;
-let currentFile = null;
 let ws = null;
+let mediaRecorder = null;
+let audioStream = null;
 let subtitles = [];
 let history = [];
 
 // DOM 元素
 const elements = {
-  fileInput: null,
-  uploadArea: null,
-  fileInfo: null,
-  fileName: null,
-  fileSize: null,
   startBtn: null,
   pauseBtn: null,
   stopBtn: null,
@@ -34,17 +30,11 @@ const elements = {
 
 document.addEventListener('DOMContentLoaded', () => {
   initElements();
-  initEventListeners();
-  loadHistory();
   initTypingEffect();
+  loadHistory();
 });
 
 function initElements() {
-  elements.fileInput = document.getElementById('fileInput');
-  elements.uploadArea = document.getElementById('uploadArea');
-  elements.fileInfo = document.getElementById('fileInfo');
-  elements.fileName = document.getElementById('fileName');
-  elements.fileSize = document.getElementById('fileSize');
   elements.startBtn = document.getElementById('startBtn');
   elements.pauseBtn = document.getElementById('pauseBtn');
   elements.stopBtn = document.getElementById('stopBtn');
@@ -53,19 +43,6 @@ function initElements() {
   elements.status = document.getElementById('status');
   elements.subtitleContainer = document.getElementById('subtitleContainer');
   elements.historyList = document.getElementById('historyList');
-}
-
-function initEventListeners() {
-  // 文件选择事件
-  elements.fileInput.addEventListener('change', handleFileSelect);
-
-  // 拖拽事件
-  elements.uploadArea.addEventListener('dragover', handleDragOver);
-  elements.uploadArea.addEventListener('dragleave', handleDragLeave);
-  elements.uploadArea.addEventListener('drop', handleDrop);
-  elements.uploadArea.addEventListener('click', () => {
-    elements.fileInput.click();
-  });
 }
 
 function initTypingEffect() {
@@ -87,125 +64,53 @@ function initTypingEffect() {
 }
 
 // ============================================
-// 文件处理
-// ============================================
-
-function handleFileSelect(event) {
-  const file = event.target.files[0];
-  if (file) {
-    processFile(file);
-  }
-}
-
-function handleDragOver(event) {
-  event.preventDefault();
-  event.stopPropagation();
-  elements.uploadArea.classList.add('dragover');
-}
-
-function handleDragLeave(event) {
-  event.preventDefault();
-  event.stopPropagation();
-  elements.uploadArea.classList.remove('dragover');
-}
-
-function handleDrop(event) {
-  event.preventDefault();
-  event.stopPropagation();
-  elements.uploadArea.classList.remove('dragover');
-
-  const file = event.dataTransfer.files[0];
-  if (file) {
-    processFile(file);
-  }
-}
-
-function processFile(file) {
-  // 检查文件类型
-  const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/mp3', 'audio/ogg', 'video/mp4'];
-  if (!allowedTypes.includes(file.type)) {
-    showError('不支持的文件格式，请上传 MP3、WAV、MP4 等格式');
-    return;
-  }
-
-  // 检查文件大小（50MB）
-  if (file.size > 50 * 1024 * 1024) {
-    showError('文件大小不能超过 50MB');
-    return;
-  }
-
-  currentFile = file;
-
-  // 显示文件信息
-  elements.fileName.textContent = file.name;
-  elements.fileSize.textContent = formatFileSize(file.size);
-  elements.fileInfo.style.display = 'flex';
-
-  // 启用开始按钮
-  elements.startBtn.disabled = false;
-
-  // 上传文件
-  uploadFile(file);
-}
-
-function removeFile() {
-  currentFile = null;
-  elements.fileInfo.style.display = 'none';
-  elements.fileInput.value = '';
-  elements.startBtn.disabled = true;
-  updateStatus('等待上传音频文件...');
-}
-
-async function uploadFile(file) {
-  const formData = new FormData();
-  formData.append('audio', file);
-
-  try {
-    updateStatus('正在上传文件...');
-
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      currentFile.path = data.filePath;
-      updateStatus('文件上传成功，可以开始翻译');
-    } else {
-      showError(data.error || '上传失败');
-    }
-  } catch (error) {
-    showError('上传失败: ' + error.message);
-  }
-}
-
-// ============================================
 // 翻译控制
 // ============================================
 
 async function startTranslation() {
-  if (!currentFile || !currentFile.path) {
-    showError('请先上传音频文件');
-    return;
+  try {
+    // 请求屏幕共享权限
+    updateStatus('正在请求屏幕共享权限...');
+
+    audioStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true
+    });
+
+    // 检查是否获取到音频轨道
+    const audioTracks = audioStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      showError('未检测到音频，请确保选择了"共享音频"选项');
+      audioStream.getTracks().forEach(track => track.stop());
+      audioStream = null;
+      return;
+    }
+
+    updateStatus('屏幕共享已开始，正在连接服务器...');
+
+    // 建立 WebSocket 连接
+    connectWebSocket();
+
+    // 更新按钮状态
+    isTranslating = true;
+    isPaused = false;
+    elements.startBtn.disabled = true;
+    elements.pauseBtn.disabled = false;
+    elements.stopBtn.disabled = false;
+
+    // 监听屏幕共享结束
+    audioStream.getVideoTracks()[0].onended = () => {
+      stopTranslation();
+    };
+
+  } catch (error) {
+    console.error('屏幕共享错误:', error);
+    if (error.name === 'NotAllowedError') {
+      showError('用户取消了屏幕共享');
+    } else {
+      showError('屏幕共享失败: ' + error.message);
+    }
   }
-
-  isTranslating = true;
-  isPaused = false;
-
-  // 更新按钮状态
-  elements.startBtn.disabled = true;
-  elements.pauseBtn.disabled = false;
-  elements.stopBtn.disabled = false;
-
-  // 清空字幕
-  clearSubtitles();
-
-  updateStatus('正在连接服务器...');
-
-  // 建立 WebSocket 连接
-  connectWebSocket();
 }
 
 function pauseTranslation() {
@@ -226,17 +131,28 @@ function stopTranslation() {
   isTranslating = false;
   isPaused = false;
 
-  // 更新按钮状态
-  elements.startBtn.disabled = false;
-  elements.pauseBtn.disabled = true;
-  elements.stopBtn.disabled = true;
-  elements.pauseBtn.querySelector('span:last-child').textContent = '暂停';
+  // 停止媒体录制
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+
+  // 停止音频流
+  if (audioStream) {
+    audioStream.getTracks().forEach(track => track.stop());
+    audioStream = null;
+  }
 
   // 关闭 WebSocket 连接
   if (ws) {
     ws.close();
     ws = null;
   }
+
+  // 更新按钮状态
+  elements.startBtn.disabled = false;
+  elements.pauseBtn.disabled = true;
+  elements.stopBtn.disabled = true;
+  elements.pauseBtn.querySelector('span:last-child').textContent = '暂停';
 
   updateStatus('翻译已停止');
 }
@@ -255,11 +171,8 @@ function connectWebSocket() {
     console.log('WebSocket 已连接');
     updateStatus('正在识别语音...');
 
-    // 发送文件路径进行识别
-    ws.send(JSON.stringify({
-      type: 'transcribe',
-      filePath: currentFile.path
-    }));
+    // 开始录制音频
+    startAudioCapture();
   };
 
   ws.onmessage = (event) => {
@@ -293,30 +206,52 @@ function connectWebSocket() {
 }
 
 // ============================================
+// 音频捕获
+// ============================================
+
+function startAudioCapture() {
+  if (!audioStream) return;
+
+  // 创建 MediaRecorder
+  const options = { mimeType: 'audio/webm;codecs=opus' };
+
+  try {
+    mediaRecorder = new MediaRecorder(audioStream, options);
+  } catch (e) {
+    // 如果不支持 webm，尝试其他格式
+    try {
+      mediaRecorder = new MediaRecorder(audioStream);
+    } catch (e2) {
+      showError('浏览器不支持音频录制');
+      return;
+    }
+  }
+
+  // 每秒发送一次音频数据
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && !isPaused) {
+      // 将音频数据转换为 ArrayBuffer 并发送
+      event.data.arrayBuffer().then(buffer => {
+        ws.send(JSON.stringify({
+          type: 'audio',
+          data: Array.from(new Uint8Array(buffer))
+        }));
+      });
+    }
+  };
+
+  // 每秒触发一次数据
+  mediaRecorder.start(1000);
+
+  updateStatus('正在实时翻译...');
+}
+
+// ============================================
 // 结果处理
 // ============================================
 
 function handleTranscribeResult(data) {
   console.log('识别结果:', data);
-
-  // 逐段翻译
-  if (data.segments && data.segments.length > 0) {
-    data.segments.forEach((segment, index) => {
-      setTimeout(() => {
-        if (!isTranslating || isPaused) return;
-
-        // 发送翻译请求
-        ws.send(JSON.stringify({
-          type: 'translate',
-          text: segment.text
-        }));
-
-        // 更新进度
-        const progress = ((index + 1) / data.segments.length) * 100;
-        updateProgress(progress);
-      }, index * 1000);
-    });
-  }
 }
 
 function handleTranslateResult(data) {
@@ -374,7 +309,7 @@ function clearSubtitles() {
         </svg>
       </div>
       <p>等待翻译开始...</p>
-      <p class="placeholder-hint">上传音频文件后点击"开始翻译"</p>
+      <p class="placeholder-hint">点击"开始翻译"并选择要翻译的窗口</p>
     </div>
   `;
 }
@@ -482,16 +417,6 @@ function showError(message) {
 // ============================================
 // 工具函数
 // ============================================
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
 
 function escapeHtml(text) {
   const div = document.createElement('div');

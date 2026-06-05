@@ -52,35 +52,34 @@
 
     <!-- 主要内容 -->
     <main class="main">
-      <!-- 上传区域 -->
-      <section class="upload-section">
+      <!-- 使用说明 -->
+      <section class="guide-section">
         <div class="section-header">
-          <div class="section-icon">📁</div>
-          <h2>音频输入</h2>
+          <div class="section-icon">📖</div>
+          <h2>使用说明</h2>
           <div class="section-line"></div>
         </div>
-        <div class="upload-area" id="uploadArea">
-          <div class="upload-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17,8 12,3 7,8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-step">1</div>
+            <h3>点击开始翻译</h3>
+            <p>系统会请求屏幕共享权限</p>
           </div>
-          <p class="upload-text">拖拽音频文件到此处</p>
-          <p class="upload-hint">支持 MP3、WAV、MP4 格式，最大 50MB</p>
-          <input type="file" id="fileInput" accept="audio/*,video/mp4" hidden>
-          <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-            选择文件
-          </button>
-        </div>
-        <div class="file-info" id="fileInfo" style="display: none;">
-          <div class="file-icon">🎵</div>
-          <div class="file-details">
-            <span class="file-name" id="fileName"></span>
-            <span class="file-size" id="fileSize"></span>
+          <div class="guide-card">
+            <div class="guide-step">2</div>
+            <h3>选择窗口</h3>
+            <p>选择要翻译的视频窗口或标签页</p>
           </div>
-          <button class="file-remove" onclick="removeFile()">✕</button>
+          <div class="guide-card">
+            <div class="guide-step">3</div>
+            <h3>勾选共享音频</h3>
+            <p>确保勾选"共享音频"选项</p>
+          </div>
+          <div class="guide-card">
+            <div class="guide-step">4</div>
+            <h3>实时字幕</h3>
+            <p>系统自动识别并翻译，显示中文字幕</p>
+          </div>
         </div>
       </section>
 
@@ -92,7 +91,7 @@
           <div class="section-line"></div>
         </div>
         <div class="control-buttons">
-          <button class="btn btn-primary" id="startBtn" onclick="startTranslation()" disabled>
+          <button class="btn btn-primary" id="startBtn" onclick="startTranslation()">
             <span class="btn-icon">▶</span>
             <span>开始翻译</span>
           </button>
@@ -111,7 +110,7 @@
           </div>
           <div class="progress-info">
             <span class="progress-percent" id="progressPercent">0%</span>
-            <span class="progress-status" id="status">等待上传音频文件...</span>
+            <span class="progress-status" id="status">等待开始翻译...</span>
           </div>
         </div>
       </section>
@@ -136,7 +135,7 @@
               </svg>
             </div>
             <p>等待翻译开始...</p>
-            <p class="placeholder-hint">上传音频文件后点击"开始翻译"</p>
+            <p class="placeholder-hint">点击"开始翻译"并选择要翻译的窗口</p>
           </div>
         </div>
       </section>

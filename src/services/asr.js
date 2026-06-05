@@ -16,18 +16,26 @@ const XFYUN_API_SECRET = process.env.XFYUN_API_SECRET;
 
 /**
  * 语音识别
- * @param {string} filePath - 音频文件路径
+ * @param {string|Buffer} input - 音频文件路径或 Buffer 数据
  * @returns {Object} 识别结果
  */
-async function transcribe(filePath) {
-  // 检查文件是否存在
-  if (!fs.existsSync(filePath)) {
-    throw new Error('音频文件不存在');
-  }
+async function transcribe(input) {
+  let audioData;
+  let fileName = 'audio-chunk';
 
-  // 读取文件
-  const audioData = fs.readFileSync(filePath);
-  const fileName = path.basename(filePath);
+  if (Buffer.isBuffer(input)) {
+    // 直接使用 Buffer 数据
+    audioData = input;
+  } else if (typeof input === 'string') {
+    // 读取文件
+    if (!fs.existsSync(input)) {
+      throw new Error('音频文件不存在');
+    }
+    audioData = fs.readFileSync(input);
+    fileName = path.basename(input);
+  } else {
+    throw new Error('无效的输入类型');
+  }
 
   // 根据配置选择识别服务
   if (XFYUN_APPID && XFYUN_API_KEY && XFYUN_API_SECRET) {

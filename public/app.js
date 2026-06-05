@@ -1,6 +1,6 @@
 /**
  * LINGUA // AI 同声传译助手
- * 前端交互逻辑 - 实时音频捕获版本
+ * 前端交互逻辑 - 浮动字幕版本
  */
 
 // 全局状态
@@ -11,7 +11,6 @@ let mediaRecorder = null;
 let audioStream = null;
 let subtitles = [];
 let history = [];
-let subtitleWindow = null;
 
 // DOM 元素
 const elements = {
@@ -33,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initElements();
   initTypingEffect();
   loadHistory();
+  createFloatingSubtitle();
 });
 
 function initElements() {
@@ -64,6 +64,161 @@ function initTypingEffect() {
   }, 50);
 }
 
+// 创建浮动字幕层
+function createFloatingSubtitle() {
+  // 检查是否已存在
+  if (document.getElementById('floatingSubtitle')) {
+    return;
+  }
+
+  // 创建浮动字幕容器
+  const floatingDiv = document.createElement('div');
+  floatingDiv.id = 'floatingSubtitle';
+  floatingDiv.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80%;
+    max-width: 800px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 12px;
+    padding: 15px;
+    z-index: 999999;
+    display: none;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  `;
+
+  // 创建字幕列表
+  const subtitleList = document.createElement('div');
+  subtitleList.id = 'floatingSubtitleList';
+  subtitleList.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  `;
+
+  floatingDiv.appendChild(subtitleList);
+  document.body.appendChild(floatingDiv);
+
+  // 添加样式
+  const style = document.createElement('style');
+  style.textContent = `
+    .floating-subtitle-item {
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      border-left: 3px solid #00d4ff;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .floating-subtitle-original {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-bottom: 5px;
+      font-style: italic;
+    }
+
+    .floating-subtitle-translated {
+      font-size: 18px;
+      color: white;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .floating-subtitle-time {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 滚动条样式 */
+    #floatingSubtitle::-webkit-scrollbar {
+      width: 6px;
+    }
+    #floatingSubtitle::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    #floatingSubtitle::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// 显示浮动字幕
+function showFloatingSubtitle() {
+  const floatingDiv = document.getElementById('floatingSubtitle');
+  if (floatingDiv) {
+    floatingDiv.style.display = 'block';
+  }
+}
+
+// 隐藏浮动字幕
+function hideFloatingSubtitle() {
+  const floatingDiv = document.getElementById('floatingSubtitle');
+  if (floatingDiv) {
+    floatingDiv.style.display = 'none';
+  }
+}
+
+// 添加浮动字幕
+function addFloatingSubtitle(original, translated) {
+  const subtitleList = document.getElementById('floatingSubtitleList');
+  if (!subtitleList) return;
+
+  const subtitle = {
+    original: original,
+    translated: translated,
+    time: new Date().toLocaleTimeString()
+  };
+
+  subtitles.push(subtitle);
+
+  const subtitleElement = document.createElement('div');
+  subtitleElement.className = 'floating-subtitle-item';
+  subtitleElement.innerHTML = `
+    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
+    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
+    <div class="floating-subtitle-time">${subtitle.time}</div>
+  `;
+
+  subtitleList.appendChild(subtitleElement);
+
+  // 滚动到底部
+  const floatingDiv = document.getElementById('floatingSubtitle');
+  if (floatingDiv) {
+    floatingDiv.scrollTop = floatingDiv.scrollHeight;
+  }
+
+  // 限制显示数量（保留最近 10 条）
+  const items = subtitleList.children;
+  if (items.length > 10) {
+    subtitleList.removeChild(items[0]);
+  }
+}
+
+// 清空浮动字幕
+function clearFloatingSubtitle() {
+  const subtitleList = document.getElementById('floatingSubtitleList');
+  if (subtitleList) {
+    subtitleList.innerHTML = '';
+  }
+  subtitles = [];
+}
+
 // ============================================
 // 翻译控制
 // ============================================
@@ -89,8 +244,8 @@ async function startTranslation() {
 
     updateStatus('屏幕共享已开始，正在连接服务器...');
 
-    // 打开字幕窗口
-    openSubtitleWindow();
+    // 显示浮动字幕
+    showFloatingSubtitle();
 
     // 建立 WebSocket 连接
     connectWebSocket();
@@ -114,26 +269,6 @@ async function startTranslation() {
     } else {
       showError('屏幕共享失败: ' + error.message);
     }
-  }
-}
-
-// 打开字幕窗口
-function openSubtitleWindow() {
-  // 关闭已存在的窗口
-  if (subtitleWindow && !subtitleWindow.closed) {
-    subtitleWindow.close();
-  }
-
-  // 打开新窗口
-  subtitleWindow = window.open(
-    '/subtitle.html',
-    'LINGUA字幕',
-    'width=400,height=600,top=100,right=100,toolbar=no,menubar=no,scrollbars=yes,resizable=yes'
-  );
-
-  // 检查窗口是否成功打开
-  if (!subtitleWindow) {
-    showError('无法打开字幕窗口，请允许弹出窗口');
   }
 }
 
@@ -172,11 +307,8 @@ function stopTranslation() {
     ws = null;
   }
 
-  // 关闭字幕窗口
-  if (subtitleWindow && !subtitleWindow.closed) {
-    subtitleWindow.close();
-    subtitleWindow = null;
-  }
+  // 隐藏浮动字幕
+  hideFloatingSubtitle();
 
   // 更新按钮状态
   elements.startBtn.disabled = false;
@@ -287,85 +419,11 @@ function handleTranscribeResult(data) {
 function handleTranslateResult(data) {
   console.log('翻译结果:', data);
 
-  // 添加字幕
-  addSubtitle(data.original, data.translated);
+  // 添加浮动字幕
+  addFloatingSubtitle(data.original, data.translated);
 
   // 添加到历史记录
   addToHistory(data.original, data.translated);
-}
-
-// ============================================
-// 字幕管理
-// ============================================
-
-function addSubtitle(original, translated) {
-  // 清空占位符
-  if (subtitles.length === 0) {
-    elements.subtitleContainer.innerHTML = '';
-  }
-
-  const subtitle = {
-    original: original,
-    translated: translated,
-    time: new Date().toLocaleTimeString()
-  };
-
-  subtitles.push(subtitle);
-
-  // 创建字幕元素
-  const subtitleElement = document.createElement('div');
-  subtitleElement.className = 'subtitle-item';
-  subtitleElement.innerHTML = `
-    <div class="subtitle-original">${escapeHtml(original)}</div>
-    <div class="subtitle-translated">${escapeHtml(translated)}</div>
-    <div class="subtitle-time">${subtitle.time}</div>
-  `;
-
-  elements.subtitleContainer.appendChild(subtitleElement);
-
-  // 滚动到底部
-  elements.subtitleContainer.scrollTop = elements.subtitleContainer.scrollHeight;
-}
-
-function clearSubtitles() {
-  subtitles = [];
-  elements.subtitleContainer.innerHTML = `
-    <div class="subtitle-placeholder">
-      <div class="placeholder-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-      </div>
-      <p>等待翻译开始...</p>
-      <p class="placeholder-hint">点击"开始翻译"并选择要翻译的窗口</p>
-    </div>
-  `;
-}
-
-function exportSubtitles() {
-  if (subtitles.length === 0) {
-    showError('没有可导出的字幕');
-    return;
-  }
-
-  // 生成 SRT 格式
-  let srt = '';
-  subtitles.forEach((subtitle, index) => {
-    srt += `${index + 1}\n`;
-    srt += `00:00:${String(index * 2).padStart(2, '0')},000 --> 00:00:${String((index + 1) * 2).padStart(2, '0')},000\n`;
-    srt += `${subtitle.translated}\n\n`;
-  });
-
-  // 下载文件
-  const blob = new Blob([srt], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'subtitles.srt';
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 // ============================================

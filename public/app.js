@@ -274,51 +274,119 @@ async function startTranslation() {
   }
 }
 
-// 打开独立字幕窗口
-function openSubtitleWindow() {
-  // 关闭已存在的窗口
-  if (subtitleWindow && !subtitleWindow.closed) {
-    subtitleWindow.close();
-  }
+// 打开独立字幕窗口（画中画模式）
+async function openSubtitleWindow() {
+  try {
+    // 创建字幕 canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 300;
+    canvas.id = 'subtitleCanvas';
 
-  // 清除之前的定时器
-  if (keepWindowOnTopInterval) {
-    clearInterval(keepWindowOnTopInterval);
-  }
+    // 设置 canvas 样式
+    canvas.style.display = 'none';
+    document.body.appendChild(canvas);
 
-  // 计算窗口位置（屏幕右侧）
-  const windowWidth = 400;
-  const windowHeight = 600;
-  const screenWidth = window.screen.width;
-  const screenHeight = window.screen.height;
-  const windowLeft = screenWidth - windowWidth - 50;
-  const windowTop = Math.floor((screenHeight - windowHeight) / 2);
+    // 绘制初始字幕
+    updateSubtitleCanvas('等待翻译开始...', '');
 
-  // 打开新窗口
-  subtitleWindow = window.open(
-    '/subtitle.html',
-    'LINGUA字幕',
-    `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
-  );
-
-  // 检查窗口是否成功打开
-  if (!subtitleWindow) {
-    showError('无法打开字幕窗口，请允许弹出窗口');
-    return;
-  }
-
-  // 定期将字幕窗口置顶（模拟 always-on-top）
-  keepWindowOnTopInterval = setInterval(() => {
-    if (subtitleWindow && !subtitleWindow.closed) {
-      try {
-        subtitleWindow.focus();
-      } catch (e) {
-        // 忽略跨域错误
-      }
+    // 请求画中画
+    if (document.pictureInPictureEnabled) {
+      await canvas.requestPictureInPicture();
+      console.log('画中画模式已启动');
     } else {
-      clearInterval(keepWindowOnTopInterval);
+      showError('浏览器不支持画中画模式');
     }
-  }, 1000);
+  } catch (error) {
+    console.error('画中画错误:', error);
+    showError('画中画模式启动失败: ' + error.message);
+  }
+}
+
+// 更新字幕 canvas
+function updateSubtitleCanvas(original, translated) {
+  const canvas = document.getElementById('subtitleCanvas');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+
+  // 清空 canvas
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.95)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 绘制边框
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+
+  // 绘制标题
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = '16px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('LINGUA 字幕', canvas.width / 2, 35);
+
+  // 绘制分隔线
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
+  ctx.beginPath();
+  ctx.moveTo(20, 50);
+  ctx.lineTo(canvas.width - 20, 50);
+  ctx.stroke();
+
+  // 绘制原文
+  if (original) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = '14px "Noto Sans SC", sans-serif';
+    ctx.textAlign = 'left';
+
+    // 自动换行
+    const words = original.split(' ');
+    let line = '';
+    let y = 80;
+
+    for (const word of words) {
+      const testLine = line + word + ' ';
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > canvas.width - 40 && line !== '') {
+        ctx.fillText(line, 20, y);
+        line = word + ' ';
+        y += 20;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 20, y);
+  }
+
+  // 绘制译文
+  if (translated) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 18px "Noto Sans SC", sans-serif';
+    ctx.textAlign = 'left';
+
+    // 自动换行
+    const words = translated.split('');
+    let line = '';
+    let y = 160;
+
+    for (const char of words) {
+      const testLine = line + char;
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > canvas.width - 40 && line !== '') {
+        ctx.fillText(line, 20, y);
+        line = char;
+        y += 25;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 20, y);
+  }
+
+  // 绘制时间
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().toLocaleTimeString(), canvas.width - 20, canvas.height - 15);
 }
 
 function pauseTranslation() {
@@ -480,19 +548,8 @@ function handleTranslateResult(data) {
   // 添加到历史记录
   addToHistory(data.original, data.translated);
 
-  // 发送到字幕窗口
-  if (subtitleWindow && !subtitleWindow.closed) {
-    try {
-      subtitleWindow.postMessage({
-        type: 'subtitle',
-        original: data.original,
-        translated: data.translated,
-        time: new Date().toLocaleTimeString()
-      }, '*');
-    } catch (e) {
-      console.error('发送字幕到窗口失败:', e);
-    }
-  }
+  // 更新字幕 canvas（画中画模式）
+  updateSubtitleCanvas(data.original, data.translated);
 }
 
 // ============================================

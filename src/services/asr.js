@@ -1,11 +1,13 @@
 /**
  * 语音识别服务 (ASR)
- * 支持多种语音识别 API
+ * 支持讯飞语音识别 API
  */
 
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const WebSocket = require('ws');
 
 // 讯飞语音 API 配置
 const XFYUN_APPID = process.env.XFYUN_APPID;
@@ -37,30 +39,173 @@ async function transcribe(filePath) {
 }
 
 /**
+ * 生成讯飞签名 URL
+ */
+function createXfyunUrl() {
+  const url = 'wss://iat-api.xfyun.cn/v2/iat';
+  const date = new Date().toUTCString();
+
+  // 生成签名
+  const signatureOrigin = `host: iat-api.xfyun.cn\ndate: ${date}\nGET /v2/iat HTTP/1.1`;
+  const signatureSha = crypto.createHmac('sha256', XFYUN_API_SECRET)
+    .update(signatureOrigin)
+    .digest('base64');
+
+  const authorizationOrigin = `api_key="${XFYUN_API_KEY}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`;
+  const authorization = Buffer.from(authorizationOrigin).toString('base64');
+
+  const params = new URLSearchParams({
+    authorization: authorization,
+    date: date,
+    host: 'iat-api.xfyun.cn'
+  });
+
+  return `${url}?${params.toString()}`;
+}
+
+/**
  * 使用讯飞语音 API 识别
  */
 async function transcribeWithXfyun(audioData, fileName) {
-  // 讯飞语音识别 API 实现
-  // 这里需要实现 WebSocket 连接到讯飞 API
-  // 由于讯飞 API 复杂，这里提供框架代码
-
   console.log('[ASR] 使用讯飞语音识别:', fileName);
 
-  // TODO: 实现讯飞语音识别
-  // 1. 生成签名
-  // 2. 建立 WebSocket 连接
-  // 3. 发送音频数据
-  // 4. 接收识别结果
+  return new Promise((resolve, reject) => {
+    const url = createXfyunUrl();
+    const ws = new WebSocket(url);
 
-  // 临时返回模拟数据
-  return {
-    text: 'This is a sample English text for testing the translation feature.',
-    segments: [
-      { start: 0, end: 2, text: 'This is' },
-      { start: 2, end: 4, text: 'a sample' },
-      { start: 4, end: 6, text: 'English text' }
-    ]
-  };
+    let result = '';
+    let segments = [];
+
+    ws.on('open', () => {
+      console.log('[ASR] WebSocket 连接成功');
+
+      // 发送开始帧
+      const startFrame = {
+        common: { app_id: XFYUN_APPID },
+        business: {
+          language: 'en_us',
+          domain: 'iat',
+          accent: 'mandarin',
+          vad_eos: 3000,
+          dwa: 'wpgs'
+        },
+        data: {
+          status: 0,
+          format: 'audio/L16;rate=16000',
+          encoding: 'raw'
+        }
+      };
+
+      ws.send(JSON.stringify(startFrame));
+
+      // 分片发送音频数据
+      const chunkSize = 1280; // 每次发送 1280 字节
+      let offset = 0;
+
+      const sendChunk = () => {
+        if (offset < audioData.length) {
+          const chunk = audioData.slice(offset, offset + chunkSize);
+          offset += chunkSize;
+
+          const frame = {
+            data: {
+              status: 1,
+              audio: chunk.toString('base64')
+            }
+          };
+
+          ws.send(JSON.stringify(frame));
+          setTimeout(sendChunk, 40); // 模拟实时发送
+        } else {
+          // 发送结束帧
+          const endFrame = {
+            data: {
+              status: 2
+            }
+          };
+          ws.send(JSON.stringify(endFrame));
+        }
+      };
+
+      sendChunk();
+    });
+
+    ws.on('message', (data) => {
+      try {
+        const response = JSON.parse(data);
+
+        if (response.code !== 0) {
+          reject(new Error(`讯飞 API 错误: ${response.message}`));
+          return;
+        }
+
+        if (response.data && response.data.result) {
+          const resultData = response.data.result;
+
+          // 提取识别结果
+          if (resultData.ws) {
+            let text = '';
+            resultData.ws.forEach(ws => {
+              ws.cw.forEach(cw => {
+                text += cw.w;
+              });
+            });
+
+            if (text) {
+              result += text;
+              segments.push({
+                start: segments.length * 2,
+                end: (segments.length + 1) * 2,
+                text: text
+              });
+            }
+          }
+
+          // 检查是否识别完成
+          if (resultData.pgs === 'rpl') {
+            // 替换模式，更新结果
+            result = '';
+            segments = [];
+          }
+        }
+
+        // 检查是否结束
+        if (response.data && response.data.status === 2) {
+          ws.close();
+          resolve({
+            text: result || '未能识别语音内容',
+            segments: segments.length > 0 ? segments : [
+              { start: 0, end: 2, text: result || '未能识别语音内容' }
+            ]
+          });
+        }
+      } catch (e) {
+        console.error('[ASR] 解析响应错误:', e);
+      }
+    });
+
+    ws.on('error', (error) => {
+      console.error('[ASR] WebSocket 错误:', error);
+      reject(error);
+    });
+
+    ws.on('close', () => {
+      console.log('[ASR] WebSocket 连接关闭');
+    });
+
+    // 超时处理
+    setTimeout(() => {
+      ws.close();
+      if (result) {
+        resolve({
+          text: result,
+          segments: segments
+        });
+      } else {
+        reject(new Error('语音识别超时'));
+      }
+    }, 30000);
+  });
 }
 
 /**

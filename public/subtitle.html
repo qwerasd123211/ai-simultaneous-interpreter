@@ -13,7 +13,7 @@
 
     body {
       font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(10, 10, 15, 0.95);
       color: white;
       min-height: 100vh;
       overflow: hidden;
@@ -32,8 +32,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px;
-      background: rgba(255, 255, 255, 0.1);
+      padding: 12px;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
       border-radius: 8px;
       cursor: move;
       user-select: none;
@@ -43,6 +44,7 @@
       font-size: 14px;
       color: #00d4ff;
       letter-spacing: 2px;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .subtitle-controls {
@@ -51,26 +53,31 @@
     }
 
     .subtitle-controls button {
-      padding: 4px 8px;
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      border: none;
+      padding: 6px 12px;
+      background: rgba(0, 212, 255, 0.1);
+      color: #00d4ff;
+      border: 1px solid rgba(0, 212, 255, 0.3);
       border-radius: 4px;
       font-size: 12px;
       cursor: pointer;
+      transition: all 0.3s ease;
     }
 
     .subtitle-controls button:hover {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(0, 212, 255, 0.2);
+      border-color: #00d4ff;
     }
 
     .subtitle-list {
       flex: 1;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
     .subtitle-item {
-      padding: 10px;
+      padding: 12px;
       background: rgba(255, 255, 255, 0.05);
       border-radius: 8px;
       animation: fadeIn 0.3s ease;
@@ -79,22 +86,22 @@
 
     .subtitle-original {
       font-size: 12px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 5px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 6px;
       font-style: italic;
     }
 
     .subtitle-translated {
-      font-size: 16px;
+      font-size: 18px;
       color: white;
       font-weight: 500;
-      line-height: 1.4;
+      line-height: 1.5;
     }
 
     .subtitle-time {
       font-size: 10px;
-      color: rgba(255, 255, 255, 0.4);
-      margin-top: 5px;
+      color: rgba(255, 255, 255, 0.3);
+      margin-top: 6px;
       font-family: 'JetBrains Mono', monospace;
     }
 
@@ -104,13 +111,24 @@
       align-items: center;
       justify-content: center;
       height: 100%;
-      color: rgba(255, 255, 255, 0.5);
+      color: rgba(255, 255, 255, 0.4);
       font-size: 14px;
+      gap: 10px;
     }
 
     .placeholder-icon {
       font-size: 48px;
-      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+
+    .placeholder-text {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .placeholder-hint {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.3);
     }
 
     @keyframes fadeIn {
@@ -134,12 +152,12 @@
     }
 
     ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(0, 212, 255, 0.3);
       border-radius: 3px;
     }
 
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.3);
+      background: rgba(0, 212, 255, 0.5);
     }
   </style>
 </head>
@@ -156,43 +174,24 @@
     <div class="subtitle-list" id="subtitleList">
       <div class="subtitle-placeholder">
         <div class="placeholder-icon">📺</div>
-        <p>等待翻译开始...</p>
+        <div class="placeholder-text">等待翻译开始...</div>
+        <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
       </div>
     </div>
   </div>
 
   <script>
     let subtitles = [];
-    let ws = null;
 
-    // 连接 WebSocket
-    function connectWebSocket() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}`;
-
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log('字幕窗口已连接');
-      };
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'translateResult') {
-          addSubtitle(data.original, data.translated);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('字幕窗口连接断开');
-        // 尝试重连
-        setTimeout(connectWebSocket, 2000);
-      };
-    }
+    // 监听来自主页面的消息
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'subtitle') {
+        addSubtitle(event.data.original, event.data.translated, event.data.time);
+      }
+    });
 
     // 添加字幕
-    function addSubtitle(original, translated) {
+    function addSubtitle(original, translated, time) {
       const subtitleList = document.getElementById('subtitleList');
 
       // 清空占位符
@@ -203,7 +202,7 @@
       const subtitle = {
         original: original,
         translated: translated,
-        time: new Date().toLocaleTimeString()
+        time: time
       };
 
       subtitles.push(subtitle);
@@ -213,13 +212,20 @@
       subtitleElement.innerHTML = `
         <div class="subtitle-original">${escapeHtml(original)}</div>
         <div class="subtitle-translated">${escapeHtml(translated)}</div>
-        <div class="subtitle-time">${subtitle.time}</div>
+        <div class="subtitle-time">${time}</div>
       `;
 
       subtitleList.appendChild(subtitleElement);
 
       // 滚动到底部
-      subtitleList.scrollTop = subtitleList.scrollHeight;
+      const container = document.querySelector('.subtitle-container');
+      container.scrollTop = container.scrollHeight;
+
+      // 限制显示数量（保留最近 20 条）
+      const items = subtitleList.children;
+      if (items.length > 20) {
+        subtitleList.removeChild(items[0]);
+      }
     }
 
     // 清空字幕
@@ -229,7 +235,8 @@
       subtitleList.innerHTML = `
         <div class="subtitle-placeholder">
           <div class="placeholder-icon">📺</div>
-          <p>等待翻译开始...</p>
+          <div class="placeholder-text">等待翻译开始...</div>
+          <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
         </div>
       `;
     }
@@ -286,9 +293,6 @@
     document.addEventListener('mouseup', () => {
       isDragging = false;
     });
-
-    // 初始化
-    connectWebSocket();
   </script>
 </body>
 </html>

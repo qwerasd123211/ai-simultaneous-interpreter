@@ -11,6 +11,8 @@ let mediaRecorder = null;
 let audioStream = null;
 let subtitles = [];
 let history = [];
+let subtitleWindow = null;
+let keepWindowOnTopInterval = null;
 
 // DOM 元素
 const elements = {
@@ -244,8 +246,8 @@ async function startTranslation() {
 
     updateStatus('屏幕共享已开始，正在连接服务器...');
 
-    // 显示浮动字幕
-    showFloatingSubtitle();
+    // 打开独立字幕窗口
+    openSubtitleWindow();
 
     // 建立 WebSocket 连接
     connectWebSocket();
@@ -270,6 +272,53 @@ async function startTranslation() {
       showError('屏幕共享失败: ' + error.message);
     }
   }
+}
+
+// 打开独立字幕窗口
+function openSubtitleWindow() {
+  // 关闭已存在的窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    subtitleWindow.close();
+  }
+
+  // 清除之前的定时器
+  if (keepWindowOnTopInterval) {
+    clearInterval(keepWindowOnTopInterval);
+  }
+
+  // 计算窗口位置（屏幕右侧）
+  const windowWidth = 400;
+  const windowHeight = 600;
+  const screenWidth = window.screen.width;
+  const screenHeight = window.screen.height;
+  const windowLeft = screenWidth - windowWidth - 50;
+  const windowTop = Math.floor((screenHeight - windowHeight) / 2);
+
+  // 打开新窗口
+  subtitleWindow = window.open(
+    '/subtitle.html',
+    'LINGUA字幕',
+    `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+  );
+
+  // 检查窗口是否成功打开
+  if (!subtitleWindow) {
+    showError('无法打开字幕窗口，请允许弹出窗口');
+    return;
+  }
+
+  // 定期将字幕窗口置顶（模拟 always-on-top）
+  keepWindowOnTopInterval = setInterval(() => {
+    if (subtitleWindow && !subtitleWindow.closed) {
+      try {
+        subtitleWindow.focus();
+      } catch (e) {
+        // 忽略跨域错误
+      }
+    } else {
+      clearInterval(keepWindowOnTopInterval);
+    }
+  }, 1000);
 }
 
 function pauseTranslation() {
@@ -307,8 +356,17 @@ function stopTranslation() {
     ws = null;
   }
 
-  // 隐藏浮动字幕
-  hideFloatingSubtitle();
+  // 关闭字幕窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    subtitleWindow.close();
+    subtitleWindow = null;
+  }
+
+  // 清除置顶定时器
+  if (keepWindowOnTopInterval) {
+    clearInterval(keepWindowOnTopInterval);
+    keepWindowOnTopInterval = null;
+  }
 
   // 更新按钮状态
   elements.startBtn.disabled = false;
@@ -419,11 +477,22 @@ function handleTranscribeResult(data) {
 function handleTranslateResult(data) {
   console.log('翻译结果:', data);
 
-  // 添加浮动字幕
-  addFloatingSubtitle(data.original, data.translated);
-
   // 添加到历史记录
   addToHistory(data.original, data.translated);
+
+  // 发送到字幕窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    try {
+      subtitleWindow.postMessage({
+        type: 'subtitle',
+        original: data.original,
+        translated: data.translated,
+        time: new Date().toLocaleTimeString()
+      }, '*');
+    } catch (e) {
+      console.error('发送字幕到窗口失败:', e);
+    }
+  }
 }
 
 // ============================================

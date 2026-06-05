@@ -277,22 +277,37 @@ async function startTranslation() {
 // 打开独立字幕窗口（画中画模式）
 async function openSubtitleWindow() {
   try {
-    // 创建字幕 canvas
+    // 创建视频元素（画中画需要视频元素）
+    const video = document.createElement('video');
+    video.id = 'pipVideo';
+    video.style.display = 'none';
+    video.autoplay = true;
+    video.muted = true;
+    document.body.appendChild(video);
+
+    // 创建 canvas 用于绘制字幕
     const canvas = document.createElement('canvas');
     canvas.width = 400;
     canvas.height = 300;
     canvas.id = 'subtitleCanvas';
-
-    // 设置 canvas 样式
     canvas.style.display = 'none';
     document.body.appendChild(canvas);
+
+    // 将 canvas 作为视频源
+    const stream = canvas.captureStream(30); // 30fps
+    video.srcObject = stream;
 
     // 绘制初始字幕
     updateSubtitleCanvas('等待翻译开始...', '');
 
+    // 等待视频加载
+    await new Promise((resolve) => {
+      video.onloadedmetadata = resolve;
+    });
+
     // 请求画中画
     if (document.pictureInPictureEnabled) {
-      await canvas.requestPictureInPicture();
+      await video.requestPictureInPicture();
       console.log('画中画模式已启动');
     } else {
       showError('浏览器不支持画中画模式');

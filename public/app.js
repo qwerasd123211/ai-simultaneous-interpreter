@@ -1,5 +1,6 @@
 /**
- * AI 同声传译助手 - 前端逻辑
+ * LINGUA // AI 同声传译助手
+ * 前端交互逻辑
  */
 
 // 全局状态
@@ -21,6 +22,7 @@ const elements = {
   pauseBtn: null,
   stopBtn: null,
   progressFill: null,
+  progressPercent: null,
   status: null,
   subtitleContainer: null,
   historyList: null
@@ -34,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initElements();
   initEventListeners();
   loadHistory();
+  initTypingEffect();
 });
 
 function initElements() {
@@ -46,6 +49,7 @@ function initElements() {
   elements.pauseBtn = document.getElementById('pauseBtn');
   elements.stopBtn = document.getElementById('stopBtn');
   elements.progressFill = document.getElementById('progressFill');
+  elements.progressPercent = document.getElementById('progressPercent');
   elements.status = document.getElementById('status');
   elements.subtitleContainer = document.getElementById('subtitleContainer');
   elements.historyList = document.getElementById('historyList');
@@ -62,6 +66,24 @@ function initEventListeners() {
   elements.uploadArea.addEventListener('click', () => {
     elements.fileInput.click();
   });
+}
+
+function initTypingEffect() {
+  const tagline = document.querySelector('.tagline-text');
+  if (!tagline) return;
+
+  const text = tagline.textContent;
+  tagline.textContent = '';
+
+  let i = 0;
+  const typeInterval = setInterval(() => {
+    if (i < text.length) {
+      tagline.textContent += text.charAt(i);
+      i++;
+    } else {
+      clearInterval(typeInterval);
+    }
+  }, 50);
 }
 
 // ============================================
@@ -126,6 +148,14 @@ function processFile(file) {
   uploadFile(file);
 }
 
+function removeFile() {
+  currentFile = null;
+  elements.fileInfo.style.display = 'none';
+  elements.fileInput.value = '';
+  elements.startBtn.disabled = true;
+  updateStatus('等待上传音频文件...');
+}
+
 async function uploadFile(file) {
   const formData = new FormData();
   formData.append('audio', file);
@@ -182,12 +212,12 @@ function pauseTranslation() {
   if (isPaused) {
     // 继续
     isPaused = false;
-    elements.pauseBtn.textContent = '⏸️ 暂停';
+    elements.pauseBtn.querySelector('span:last-child').textContent = '暂停';
     updateStatus('翻译已继续');
   } else {
     // 暂停
     isPaused = true;
-    elements.pauseBtn.textContent = '▶️ 继续';
+    elements.pauseBtn.querySelector('span:last-child').textContent = '继续';
     updateStatus('翻译已暂停');
   }
 }
@@ -200,7 +230,7 @@ function stopTranslation() {
   elements.startBtn.disabled = false;
   elements.pauseBtn.disabled = true;
   elements.stopBtn.disabled = true;
-  elements.pauseBtn.textContent = '⏸️ 暂停';
+  elements.pauseBtn.querySelector('span:last-child').textContent = '暂停';
 
   // 关闭 WebSocket 连接
   if (ws) {
@@ -336,7 +366,15 @@ function clearSubtitles() {
   subtitles = [];
   elements.subtitleContainer.innerHTML = `
     <div class="subtitle-placeholder">
-      等待翻译开始...
+      <div class="placeholder-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </div>
+      <p>等待翻译开始...</p>
+      <p class="placeholder-hint">上传音频文件后点击"开始翻译"</p>
     </div>
   `;
 }
@@ -402,7 +440,7 @@ function updateHistoryDisplay() {
   if (history.length === 0) {
     elements.historyList.innerHTML = `
       <div class="history-placeholder">
-        暂无翻译记录
+        <p>暂无翻译记录</p>
       </div>
     `;
     return;
@@ -433,6 +471,7 @@ function updateStatus(message) {
 
 function updateProgress(percent) {
   elements.progressFill.style.width = `${percent}%`;
+  elements.progressPercent.textContent = `${Math.round(percent)}%`;
 }
 
 function showError(message) {

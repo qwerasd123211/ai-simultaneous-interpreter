@@ -11,6 +11,7 @@ let mediaRecorder = null;
 let audioStream = null;
 let subtitles = [];
 let history = [];
+let subtitleWindow = null;
 
 // DOM 元素
 const elements = {
@@ -88,6 +89,9 @@ async function startTranslation() {
 
     updateStatus('屏幕共享已开始，正在连接服务器...');
 
+    // 打开字幕窗口
+    openSubtitleWindow();
+
     // 建立 WebSocket 连接
     connectWebSocket();
 
@@ -110,6 +114,26 @@ async function startTranslation() {
     } else {
       showError('屏幕共享失败: ' + error.message);
     }
+  }
+}
+
+// 打开字幕窗口
+function openSubtitleWindow() {
+  // 关闭已存在的窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    subtitleWindow.close();
+  }
+
+  // 打开新窗口
+  subtitleWindow = window.open(
+    '/subtitle.html',
+    'LINGUA字幕',
+    'width=400,height=600,top=100,right=100,toolbar=no,menubar=no,scrollbars=yes,resizable=yes'
+  );
+
+  // 检查窗口是否成功打开
+  if (!subtitleWindow) {
+    showError('无法打开字幕窗口，请允许弹出窗口');
   }
 }
 
@@ -146,6 +170,12 @@ function stopTranslation() {
   if (ws) {
     ws.close();
     ws = null;
+  }
+
+  // 关闭字幕窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    subtitleWindow.close();
+    subtitleWindow = null;
   }
 
   // 更新按钮状态

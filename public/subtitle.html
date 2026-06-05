@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINGUA 字幕</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .subtitle-container {
+      padding: 15px;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subtitle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      cursor: move;
+      user-select: none;
+    }
+
+    .subtitle-header h3 {
+      font-size: 14px;
+      color: #00d4ff;
+      letter-spacing: 2px;
+    }
+
+    .subtitle-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .subtitle-controls button {
+      padding: 4px 8px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .subtitle-controls button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .subtitle-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .subtitle-item {
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      animation: fadeIn 0.3s ease;
+      border-left: 3px solid #00d4ff;
+    }
+
+    .subtitle-original {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-bottom: 5px;
+      font-style: italic;
+    }
+
+    .subtitle-translated {
+      font-size: 16px;
+      color: white;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .subtitle-time {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .subtitle-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 14px;
+    }
+
+    .placeholder-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="subtitle-container">
+    <div class="subtitle-header" id="header">
+      <h3>LINGUA 字幕</h3>
+      <div class="subtitle-controls">
+        <button onclick="clearSubtitles()">清空</button>
+        <button onclick="exportSubtitles()">导出</button>
+        <button onclick="window.close()">关闭</button>
+      </div>
+    </div>
+    <div class="subtitle-list" id="subtitleList">
+      <div class="subtitle-placeholder">
+        <div class="placeholder-icon">📺</div>
+        <p>等待翻译开始...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let subtitles = [];
+    let ws = null;
+
+    // 连接 WebSocket
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('字幕窗口已连接');
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'translateResult') {
+          addSubtitle(data.original, data.translated);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('字幕窗口连接断开');
+        // 尝试重连
+        setTimeout(connectWebSocket, 2000);
+      };
+    }
+
+    // 添加字幕
+    function addSubtitle(original, translated) {
+      const subtitleList = document.getElementById('subtitleList');
+
+      // 清空占位符
+      if (subtitles.length === 0) {
+        subtitleList.innerHTML = '';
+      }
+
+      const subtitle = {
+        original: original,
+        translated: translated,
+        time: new Date().toLocaleTimeString()
+      };
+
+      subtitles.push(subtitle);
+
+      const subtitleElement = document.createElement('div');
+      subtitleElement.className = 'subtitle-item';
+      subtitleElement.innerHTML = `
+        <div class="subtitle-original">${escapeHtml(original)}</div>
+        <div class="subtitle-translated">${escapeHtml(translated)}</div>
+        <div class="subtitle-time">${subtitle.time}</div>
+      `;
+
+      subtitleList.appendChild(subtitleElement);
+
+      // 滚动到底部
+      subtitleList.scrollTop = subtitleList.scrollHeight;
+    }
+
+    // 清空字幕
+    function clearSubtitles() {
+      subtitles = [];
+      const subtitleList = document.getElementById('subtitleList');
+      subtitleList.innerHTML = `
+        <div class="subtitle-placeholder">
+          <div class="placeholder-icon">📺</div>
+          <p>等待翻译开始...</p>
+        </div>
+      `;
+    }
+
+    // 导出字幕
+    function exportSubtitles() {
+      if (subtitles.length === 0) {
+        alert('没有可导出的字幕');
+        return;
+      }
+
+      let srt = '';
+      subtitles.forEach((subtitle, index) => {
+        srt += `${index + 1}\n`;
+        srt += `00:00:${String(index * 2).padStart(2, '0')},000 --> 00:00:${String((index + 1) * 2).padStart(2, '0')},000\n`;
+        srt += `${subtitle.translated}\n\n`;
+      });
+
+      const blob = new Blob([srt], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'subtitles.srt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 窗口拖拽
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    const header = document.getElementById('header');
+
+    header.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragOffsetX = e.clientX - window.screenX;
+      dragOffsetY = e.clientY - window.screenY;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        window.moveTo(e.clientX - dragOffsetX, e.clientY - dragOffsetY);
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    // 初始化
+    connectWebSocket();
+  </script>
+</body>
+</html>

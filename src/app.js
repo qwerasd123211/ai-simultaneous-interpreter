@@ -74,7 +74,8 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     });
   } catch (error) {
     console.error('上传错误:', error);
-    res.status(500).json({ error: error.message });
+    // 不暴露详细错误信息，返回通用错误消息
+    res.status(500).json({ error: '服务器内部错误，请稍后重试' });
   }
 });
 
@@ -97,7 +98,7 @@ app.post('/api/transcribe', async (req, res) => {
     });
   } catch (error) {
     console.error('语音识别错误:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: '语音识别失败，请稍后重试' });
   }
 });
 
@@ -121,7 +122,7 @@ app.post('/api/translate', async (req, res) => {
     });
   } catch (error) {
     console.error('翻译错误:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: '翻译失败，请稍后重试' });
   }
 });
 
@@ -131,7 +132,18 @@ wss.on('connection', (ws) => {
 
   ws.on('message', async (message) => {
     try {
-      const data = JSON.parse(message);
+      // 解析消息
+      let data;
+      try {
+        data = JSON.parse(message);
+      } catch (e) {
+        throw new Error('消息格式错误：无法解析 JSON');
+      }
+
+      // 验证消息类型
+      if (!data.type) {
+        throw new Error('消息格式错误：缺少 type 字段');
+      }
 
       switch (data.type) {
         case 'transcribe':

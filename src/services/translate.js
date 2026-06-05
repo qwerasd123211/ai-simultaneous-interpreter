@@ -72,7 +72,18 @@ async function translateWithDeepSeek(text, targetLang) {
     }
 
     const data = await response.json();
-    const translated = data.choices[0].message.content.trim();
+
+    // 验证响应结构
+    if (!data || !data.choices || !data.choices.length) {
+      throw new Error('API 响应格式错误：缺少 choices 字段');
+    }
+
+    const choice = data.choices[0];
+    if (!choice || !choice.message || !choice.message.content) {
+      throw new Error('API 响应格式错误：缺少 message 内容');
+    }
+
+    const translated = choice.message.content.trim();
 
     return {
       translated: translated,
@@ -91,37 +102,57 @@ async function translateMock(text, targetLang) {
   console.log('[Translate] 使用模拟翻译:', text.substring(0, 50) + '...');
 
   // 模拟处理时间
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, 300));
 
-  // 简单的模拟翻译
-  const mockTranslations = {
-    'Hello': '你好',
+  // 预设的翻译映射（更完整）
+  const translations = {
+    'hello': '你好',
     'welcome': '欢迎',
     'to': '到',
     'the': '这个',
-    'AI': '人工智能',
+    'ai': '人工智能',
+    'artificial intelligence': '人工智能',
     'simultaneous': '同声',
     'interpreter': '传译',
-    'This': '这个',
+    'translate': '翻译',
+    'translation': '翻译',
+    'this': '这个',
+    'is': '是',
+    'a': '一个',
     'tool': '工具',
     'will': '会',
     'help': '帮助',
     'you': '你',
     'understand': '理解',
-    'English': '英语',
+    'english': '英语',
+    'chinese': '中文',
     'content': '内容',
     'in': '在',
     'real-time': '实时',
+    'realtime': '实时',
     'by': '通过',
     'providing': '提供',
-    'Chinese': '中文',
-    'subtitles': '字幕'
+    'subtitles': '字幕',
+    'language': '语言',
+    'barrier': '障碍',
+    'break': '打破',
+    'speech': '语音',
+    'recognition': '识别',
+    'audio': '音频',
+    'file': '文件',
+    'upload': '上传',
+    'start': '开始',
+    'stop': '停止',
+    'pause': '暂停'
   };
 
-  // 简单词替换
+  // 按长度排序，优先匹配长短语
+  const sortedKeys = Object.keys(translations).sort((a, b) => b.length - a.length);
+
   let translated = text;
-  for (const [en, zh] of Object.entries(mockTranslations)) {
-    translated = translated.replace(new RegExp(en, 'gi'), zh);
+  for (const en of sortedKeys) {
+    const regex = new RegExp(`\\b${en}\\b`, 'gi');
+    translated = translated.replace(regex, translations[en]);
   }
 
   return {

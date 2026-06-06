@@ -411,9 +411,6 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 
 // 绘制字幕到 canvas（供画中画循环调用）
 function drawSubtitleCanvas(original, translated) {
-
-// 绘制字幕到 canvas（供画中画循环调用）
-function drawSubtitleCanvas(original, translated) {
   const canvas = document.getElementById('subtitleCanvas');
   if (!canvas) return;
 

@@ -629,7 +629,8 @@ function startAudioCapture() {
     sourceRef = source;
 
     // 创建 ScriptProcessorNode 获取原始 PCM 数据
-    const bufferSize = 4096;
+    // 使用 2048 缓冲区大小，平衡性能和延迟（约 40ms @ 48kHz）
+    const bufferSize = 2048;
     const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
     processorRef = processor;
 
@@ -652,12 +653,12 @@ function startAudioCapture() {
 
       pcmAccumulator.push(pcmFrame);
 
-      // 每 100ms 发送一次音频（约 10 帧），保持连续流
+      // 每 80ms 发送一次音频，降低延迟同时保持流连续性
       const now = Date.now();
       const totalSamples = pcmAccumulator.reduce((sum, buf) => sum + buf.length, 0);
-      const targetSamples = Math.floor(audioContext.sampleRate * 0.1); // 0.1 秒 = 100ms
+      const targetSamples = Math.floor(audioContext.sampleRate * 0.08); // 0.08 秒 = 80ms
 
-      if (totalSamples >= targetSamples || (now - lastSendTime > 100 && totalSamples > 0)) {
+      if (totalSamples >= targetSamples || (now - lastSendTime > 80 && totalSamples > 0)) {
         lastSendTime = now;
 
         // 合并所有 PCM 数据
@@ -706,7 +707,7 @@ function startAudioCapture() {
     processor.connect(audioContext.destination);
 
     updateStatus('正在实时翻译...');
-    console.log('[音频] AudioContext PCM 捕获已启动，采样率:', audioContext.sampleRate, '发送间隔: 100ms');
+    console.log('[音频] AudioContext PCM 捕获已启动，采样率:', audioContext.sampleRate, '发送间隔: 80ms, 缓冲区:', bufferSize);
   } catch (error) {
     console.error('音频捕获错误:', error);
     showError('音频捕获失败: ' + error.message);

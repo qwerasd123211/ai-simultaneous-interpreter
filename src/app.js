@@ -5,8 +5,8 @@ const path = require('path');
 const WebSocket = require('ws');
 const http = require('http');
 
+const asrService = require('./services/asr');
 const translateService = require('./services/translate');
-const StreamAsrService = require('./services/stream-asr');
 
 const app = express();
 const server = http.createServer(app);
@@ -28,84 +28,8 @@ app.get('/', (req, res) => {
 wss.on('connection', (ws) => {
   console.log('客户端已连接');
 
-  let streamAsr = null;
-  let testMode = false;
-  let lastTranscribedText = '';
-  let translateQueue = [];
-  let isTranslating = false;
-
-  // 处理翻译队列
-  async function processTranslateQueue() {
-    if (isTranslating || translateQueue.length === 0) return;
-
-    isTranslating = true;
-    const item = translateQueue.shift();
-
-    try {
-      const translateResult = await translateService.translate(item.text);
-      console.log('[app] 翻译结果:', translateResult.translated);
-
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'translateResult',
-          original: item.text,
-          translated: translateResult.translated,
-          isFinal: item.isFinal
-        }));
-      }
-    } catch (error) {
-      console.error('[app] 翻译错误:', error);
-    } finally {
-      isTranslating = false;
-      setImmediate(processTranslateQueue);
-    }
-  }
-
-  // 初始化 ASR
-  function initAsr() {
-    if (streamAsr) return;
-
-    streamAsr = new StreamAsrService();
-
-    streamAsr.start(
-      // onResult
-      (text, isFinal) => {
-        if (text !== lastTranscribedText) {
-          lastTranscribedText = text;
-          console.log(`[app] 识别结果${isFinal ? '(最终)' : '(中间)'}:`, text);
-
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'transcribeResult',
-              text: text,
-              isFinal: isFinal
-            }));
-          }
-
-          translateQueue.push({ text: text, isFinal: isFinal });
-          processTranslateQueue();
-        }
-      },
-      // onError
-      (error) => {
-        console.error('[app] ASR 错误:', error.message);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: '语音识别错误: ' + error.message
-          }));
-        }
-      },
-      // onClose
-      () => {
-        console.log('[app] ASR 连接已关闭');
-        streamAsr = null;
-      }
-    ).catch(err => {
-      console.error('[app] 启动 ASR 失败:', err.message);
-      streamAsr = null;
-    });
-  }
+  let audioBuffer = [];
+  let isProcessing = false;
 
   ws.on('message', async (message) => {
     try {
@@ -113,54 +37,51 @@ wss.on('connection', (ws) => {
 
       switch (data.type) {
         case 'audio':
+          // 接收音频数据
           if (data.data && data.data.length > 0) {
             const audioChunk = Buffer.from(data.data);
+            audioBuffer.push(audioChunk);
 
-            // 确保 ASR 已初始化
-            if (!streamAsr) {
-              initAsr();
-            }
+            // 每积累 3 秒的音频数据进行一次识别
+            if (audioBuffer.length >= 3 && !isProcessing) {
+              isProcessing = true;
 
-            // 发送音频
-            if (streamAsr) {
-              streamAsr.sendAudio(audioChunk, false);
-            }
-          }
-          break;
+              try {
+                // 合并音频数据
+                const combinedAudio = Buffer.concat(audioBuffer);
+                audioBuffer = [];
 
-        case 'audioEnd':
-          if (streamAsr) {
-            streamAsr.sendAudio(Buffer.alloc(0), true);
-          }
-          break;
+                // 语音识别
+                const transcribeResult = await asrService.transcribe(combinedAudio);
 
-        case 'test':
-          if (data.enabled) {
-            testMode = true;
-            const testPhrases = [
-              { original: 'Hello, welcome to the show!', translated: '你好，欢迎来到这个节目！' },
-              { original: 'This is a beautiful song.', translated: '这是一首美妙的歌曲。' },
-              { original: 'I hope you enjoy it.', translated: '希望你能喜欢。' },
-              { original: 'The music makes me feel alive.', translated: '音乐让我感到充满活力。' },
-              { original: 'Let the rhythm take you away.', translated: '让节奏带你飞。' }
-            ];
-            let idx = 0;
-            const testInterval = setInterval(() => {
-              if (!testMode || ws.readyState !== WebSocket.OPEN) {
-                clearInterval(testInterval);
-                return;
+                if (transcribeResult.text && transcribeResult.text.trim()) {
+                  // 发送识别结果
+                  ws.send(JSON.stringify({
+                    type: 'transcribeResult',
+                    text: transcribeResult.text,
+                    segments: transcribeResult.segments
+                  }));
+
+                  // 翻译
+                  const translateResult = await translateService.translate(transcribeResult.text);
+
+                  // 发送翻译结果
+                  ws.send(JSON.stringify({
+                    type: 'translateResult',
+                    original: transcribeResult.text,
+                    translated: translateResult.translated
+                  }));
+                }
+              } catch (error) {
+                console.error('处理音频错误:', error);
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: error.message
+                }));
+              } finally {
+                isProcessing = false;
               }
-              const phrase = testPhrases[idx % testPhrases.length];
-              ws.send(JSON.stringify({
-                type: 'translateResult',
-                original: phrase.original,
-                translated: phrase.translated
-              }));
-              idx++;
-            }, 3000);
-            ws.send(JSON.stringify({ type: 'testStarted' }));
-          } else {
-            testMode = false;
+            }
           }
           break;
 
@@ -179,12 +100,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('客户端已断开');
-    testMode = false;
-    if (streamAsr) {
-      streamAsr.close();
-      streamAsr = null;
-    }
-    translateQueue = [];
+    audioBuffer = [];
   });
 });
 

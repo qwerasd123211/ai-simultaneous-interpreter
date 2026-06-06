@@ -282,7 +282,7 @@ async function startTranslation() {
   }
 }
 
-// 打开独立字幕窗口（画中画模式）
+// 打开独立字幕窗口（弹窗模式）
 async function openSubtitleWindow() {
   // 先关闭已有窗口
   if (subtitleWindow && !subtitleWindow.closed) {
@@ -295,118 +295,52 @@ async function openSubtitleWindow() {
   }
 
   try {
-    // 创建 canvas 用于画中画
-    const canvas = document.createElement('canvas');
-    canvas.width = 400;
-    canvas.height = 300;
-    canvas.id = 'pipCanvas';
-    canvas.style.display = 'none';
-    document.body.appendChild(canvas);
+    // 使用 window.open 打开字幕页面弹窗
+    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    subtitleWindow = window.open(
+      subtitleUrl,
+      'LINGUA_Subtitle',
+      'width=480,height=360,menubar=no,toolbar=no,location=no,status=no,resizable=yes'
+    );
 
-    // 绘制初始字幕
-    drawSubtitleOnCanvas('等待翻译开始...', '');
-
-    // 创建视频元素
-    const video = document.createElement('video');
-    video.id = 'pipVideo';
-    video.style.display = 'none';
-    video.autoplay = true;
-    video.muted = true;
-    document.body.appendChild(video);
-
-    // 将 canvas 作为视频源
-    const stream = canvas.captureStream(1);
-    video.srcObject = stream;
-
-    // 等待视频加载
-    await new Promise((resolve) => {
-      video.onloadedmetadata = resolve;
-    });
-
-    // 请求画中画
-    if (document.pictureInPictureEnabled) {
-      await video.requestPictureInPicture();
-      console.log('画中画模式已启动');
-    } else {
-      console.log('浏览器不支持画中画，使用浮动字幕');
+    if (!subtitleWindow) {
+      // 弹窗被浏览器拦截，提示用户
+      showError('字幕窗口被拦截，请允许弹窗后再试');
+      return;
     }
+
+    // 等窗口加载完成后发送初始消息
+    const checkLoaded = setInterval(() => {
+      if (subtitleWindow && !subtitleWindow.closed) {
+        try {
+          subtitleWindow.postMessage({ type: 'init' }, '*');
+          clearInterval(checkLoaded);
+        } catch (e) {
+          // 窗口还没准备好，继续等待
+        }
+      } else {
+        clearInterval(checkLoaded);
+      }
+    }, 200);
+
+    // 10 秒后停止检查
+    setTimeout(() => clearInterval(checkLoaded), 10000);
+
+    // 置顶字幕窗口：定时重新聚焦（用户在与主页面交互时保持字幕窗口在前）
+    keepWindowOnTopInterval = setInterval(() => {
+      if (subtitleWindow && !subtitleWindow.closed && !document.hidden) {
+        try {
+          // 不要强制聚焦，只尝试一次，避免打扰用户
+          // 这里仅做保活，不强制置顶（浏览器安全策略限制）
+        } catch (e) {}
+      }
+    }, 3000);
+
+    console.log('字幕窗口已打开');
   } catch (error) {
-    console.error('画中画错误:', error);
-    console.log('使用浮动字幕作为备选方案');
+    console.error('打开字幕窗口错误:', error);
+    showError('打开字幕窗口失败: ' + error.message);
   }
-}
-
-// 在 canvas 上绘制字幕
-function drawSubtitleOnCanvas(original, translated) {
-  const canvas = document.getElementById('pipCanvas');
-  if (!canvas) return;
-
-  const ctx = canvas.getContext('2d');
-
-  // 清空
-  ctx.fillStyle = 'rgba(10, 10, 15, 0.95)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 边框
-  ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
-
-  // 标题
-  ctx.fillStyle = '#00d4ff';
-  ctx.font = 'bold 16px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('LINGUA 字幕', canvas.width / 2, 30);
-
-  // 分隔线
-  ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
-  ctx.beginPath();
-  ctx.moveTo(20, 45);
-  ctx.lineTo(canvas.width - 20, 45);
-  ctx.stroke();
-
-  // 原文
-  if (original) {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'left';
-    wrapText(ctx, original, 20, 70, canvas.width - 40, 16);
-  }
-
-  // 译文
-  if (translated) {
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'left';
-    wrapText(ctx, translated, 20, 150, canvas.width - 40, 22);
-  }
-
-  // 时间
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText(new Date().toLocaleTimeString(), canvas.width - 20, canvas.height - 15);
-}
-
-// 文本自动换行
-function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-  const words = text.split('');
-  let line = '';
-  let currentY = y;
-
-  for (const char of words) {
-    const testLine = line + char;
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line !== '') {
-      ctx.fillText(line, x, currentY);
-      line = char;
-      currentY += lineHeight;
-      if (currentY > 280) break; // 防止超出 canvas
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line, x, currentY);
 }
 
 // 绘制字幕到 canvas（供画中画循环调用）
@@ -602,9 +536,9 @@ function stopTranslation() {
     keepWindowOnTopInterval = null;
   }
 
-  // 隐藏浮动字幕面板
-  hideFloatingPanel();
-  clearFloatingSubtitles();
+  // 隐藏页面浮动字幕层
+  hideFloatingSubtitle();
+  clearFloatingSubtitle();
 
   // 更新按钮状态
   elements.startBtn.disabled = false;
@@ -795,31 +729,22 @@ function handleTranslateResult(data) {
 
   const isFinal = data.isFinal !== false;
 
-  // 确保浮动面板显示
-  showFloatingPanel();
-
-  // 更新画中画字幕
-  drawSubtitleOnCanvas(data.original, data.translated);
-
   // 如果是中间结果，更新当前字幕；如果是最终结果，创建新字幕
   if (!isFinal && activeSubtitleItem) {
     // 更新现有字幕（流式更新）
     updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
   } else {
     // 最终结果：添加到历史并创建新字幕
-    if (isFinal) {
-      addToHistory(data.original, data.translated);
-    }
+    addToHistory(data.original, data.translated);
 
-    // 页面浮动字幕面板
+    // 页面浮动字幕
     if (isFinal) {
-      addFloatingSubtitleToPanel(data.original, data.translated);
-      activeSubtitleItem = null;
+      addFloatingSubtitle(data.original, data.translated);
     } else {
-      activeSubtitleItem = addOrUpdateFloatingSubtitleToPanel(data.original, data.translated);
+      activeSubtitleItem = addOrUpdateFloatingSubtitle(data.original, data.translated);
     }
 
-    // 独立字幕弹窗（如果打开）
+    // 独立字幕弹窗
     if (subtitleWindow && !subtitleWindow.closed) {
       try {
         subtitleWindow.postMessage({
@@ -832,6 +757,11 @@ function handleTranslateResult(data) {
       } catch (e) {
         console.error('发送字幕到窗口失败:', e);
       }
+    }
+
+    // 如果是最终结果，清空活跃字幕
+    if (isFinal) {
+      activeSubtitleItem = null;
     }
   }
 }
@@ -847,37 +777,12 @@ function updateSubtitleDisplay(element, original, translated) {
   if (translatedEl) translatedEl.textContent = translated;
 }
 
-// 添加字幕到浮动面板
-function addFloatingSubtitleToPanel(original, translated) {
-  const subtitleList = document.getElementById('floatingSubtitleList');
-  if (!subtitleList) return;
-
-  const subtitleElement = document.createElement('div');
-  subtitleElement.className = 'floating-subtitle-item';
-  subtitleElement.innerHTML = `
-    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
-    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
-    <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
-  `;
-
-  subtitleList.appendChild(subtitleElement);
-
-  // 滚动到底部
-  subtitleList.scrollTop = subtitleList.scrollHeight;
-
-  // 限制显示数量
-  const items = subtitleList.children;
-  if (items.length > 20) {
-    subtitleList.removeChild(items[0]);
-  }
-}
-
-// 添加或更新流式字幕到浮动面板（返回元素引用）
-function addOrUpdateFloatingSubtitleToPanel(original, translated) {
+// 添加或更新浮动字幕（返回元素引用）
+function addOrUpdateFloatingSubtitle(original, translated) {
   const subtitleList = document.getElementById('floatingSubtitleList');
   if (!subtitleList) return null;
 
-  // 查找最后一个流式字幕元素
+  // 查找最后一个字幕元素
   const lastItem = subtitleList.lastElementChild;
 
   if (lastItem && lastItem.dataset.isStreaming === 'true') {
@@ -888,7 +793,7 @@ function addOrUpdateFloatingSubtitleToPanel(original, translated) {
 
   // 创建新字幕元素
   const subtitleElement = document.createElement('div');
-  subtitleElement.className = 'floating-subtitle-item streaming';
+  subtitleElement.className = 'floating-subtitle-item';
   subtitleElement.dataset.isStreaming = 'true';
   subtitleElement.innerHTML = `
     <div class="floating-subtitle-original">${escapeHtml(original)}</div>
@@ -899,11 +804,14 @@ function addOrUpdateFloatingSubtitleToPanel(original, translated) {
   subtitleList.appendChild(subtitleElement);
 
   // 滚动到底部
-  subtitleList.scrollTop = subtitleList.scrollHeight;
+  const floatingDiv = document.getElementById('floatingSubtitle');
+  if (floatingDiv) {
+    floatingDiv.scrollTop = floatingDiv.scrollHeight;
+  }
 
   // 限制显示数量
   const items = subtitleList.children;
-  if (items.length > 20) {
+  if (items.length > 10) {
     subtitleList.removeChild(items[0]);
   }
 
@@ -995,86 +903,3 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
-
-// ============================================
-// 浮动字幕面板
-// ============================================
-
-let floatingPanelActive = false;
-let floatingPanelDrag = false;
-let floatingPanelDragOffset = { x: 0, y: 0 };
-
-function showFloatingPanel() {
-  const panel = document.getElementById('floatingSubtitlePanel');
-  if (panel) {
-    panel.style.display = 'flex';
-    floatingPanelActive = true;
-  }
-}
-
-function hideFloatingPanel() {
-  const panel = document.getElementById('floatingSubtitlePanel');
-  if (panel) {
-    panel.style.display = 'none';
-    floatingPanelActive = false;
-  }
-}
-
-function toggleFloatingPanel() {
-  const panel = document.getElementById('floatingSubtitlePanel');
-  if (panel) {
-    panel.classList.toggle('minimized');
-  }
-}
-
-function clearFloatingSubtitles() {
-  const list = document.getElementById('floatingSubtitleList');
-  if (list) {
-    list.innerHTML = '';
-  }
-}
-
-// 浮动面板拖拽
-function initFloatingPanelDrag() {
-  const header = document.getElementById('floatingSubtitleHeader');
-  const panel = document.getElementById('floatingSubtitlePanel');
-  if (!header || !panel) return;
-
-  header.addEventListener('mousedown', (e) => {
-    floatingPanelDrag = true;
-    const rect = panel.getBoundingClientRect();
-    floatingPanelDragOffset.x = e.clientX - rect.left;
-    floatingPanelDragOffset.y = e.clientY - rect.top;
-    panel.style.cursor = 'grabbing';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!floatingPanelDrag) return;
-    const panel = document.getElementById('floatingSubtitlePanel');
-    if (!panel) return;
-
-    let x = e.clientX - floatingPanelDragOffset.x;
-    let y = e.clientY - floatingPanelDragOffset.y;
-
-    // 限制在视口内
-    const maxX = window.innerWidth - panel.offsetWidth;
-    const maxY = window.innerHeight - panel.offsetHeight;
-    x = Math.max(0, Math.min(x, maxX));
-    y = Math.max(0, Math.min(y, maxY));
-
-    panel.style.left = x + 'px';
-    panel.style.top = y + 'px';
-    panel.style.right = 'auto';
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (floatingPanelDrag) {
-      floatingPanelDrag = false;
-      const panel = document.getElementById('floatingSubtitlePanel');
-      if (panel) panel.style.cursor = 'default';
-    }
-  });
-}
-
-// 页面加载时初始化拖拽
-document.addEventListener('DOMContentLoaded', initFloatingPanelDrag);

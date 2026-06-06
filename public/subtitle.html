@@ -12,86 +12,126 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      background: rgba(15, 23, 42, 0.95);
-      color: #e2e8f0;
-      height: 100vh;
+      font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: rgba(10, 10, 15, 0.95);
+      color: white;
+      min-height: 100vh;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .header {
-      padding: 12px 16px;
-      background: rgba(30, 41, 59, 0.8);
-      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      -webkit-app-region: drag;
-    }
-
-    .header h1 {
-      font-size: 14px;
-      font-weight: 600;
-      color: #00d4ff;
-      letter-spacing: 1px;
-    }
-
-    .header-controls {
-      display: flex;
-      gap: 8px;
-      -webkit-app-region: no-drag;
-    }
-
-    .header-btn {
-      padding: 4px 12px;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-      background: rgba(148, 163, 184, 0.1);
-      color: #94a3b8;
-    }
-
-    .header-btn:hover {
-      background: rgba(148, 163, 184, 0.2);
-      color: #e2e8f0;
-    }
-
-    .header-btn.pin-btn.active {
-      background: rgba(0, 212, 255, 0.2);
-      color: #00d4ff;
     }
 
     .subtitle-container {
-      flex: 1;
+      padding: 15px;
+      height: 100vh;
       overflow-y: auto;
-      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subtitle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 8px;
+      cursor: move;
+      user-select: none;
+    }
+
+    .subtitle-header h3 {
+      font-size: 14px;
+      color: #00d4ff;
+      letter-spacing: 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .subtitle-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .subtitle-controls button {
+      padding: 6px 12px;
+      background: rgba(0, 212, 255, 0.1);
+      color: #00d4ff;
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .subtitle-controls button:hover {
+      background: rgba(0, 212, 255, 0.2);
+      border-color: #00d4ff;
     }
 
     .subtitle-list {
+      flex: 1;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
 
     .subtitle-item {
-      background: rgba(30, 41, 59, 0.6);
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.05);
       border-radius: 8px;
-      padding: 12px 16px;
-      border-left: 3px solid transparent;
-      transition: all 0.3s;
-      animation: slideIn 0.3s ease;
+      animation: fadeIn 0.3s ease;
+      border-left: 3px solid #00d4ff;
     }
 
-    .subtitle-item.streaming {
-      border-left-color: #00d4ff;
-      background: rgba(0, 212, 255, 0.05);
+    .subtitle-original {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 6px;
+      font-style: italic;
     }
 
-    @keyframes slideIn {
+    .subtitle-translated {
+      font-size: 18px;
+      color: white;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .subtitle-time {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.3);
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .subtitle-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    .placeholder-icon {
+      font-size: 48px;
+      opacity: 0.5;
+    }
+
+    .placeholder-text {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .placeholder-hint {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    @keyframes fadeIn {
       from {
         opacity: 0;
         transform: translateY(10px);
@@ -102,77 +142,37 @@
       }
     }
 
-    .subtitle-original {
-      font-size: 13px;
-      color: #94a3b8;
-      margin-bottom: 4px;
-      font-style: italic;
-    }
-
-    .subtitle-translated {
-      font-size: 15px;
-      color: #e2e8f0;
-      line-height: 1.5;
-      font-weight: 500;
-    }
-
-    .subtitle-time {
-      font-size: 11px;
-      color: #64748b;
-      margin-top: 6px;
-    }
-
-    .placeholder {
-      text-align: center;
-      color: #64748b;
-      padding: 40px 20px;
-    }
-
-    .placeholder-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-      opacity: 0.5;
-    }
-
-    .placeholder-text {
-      font-size: 14px;
-      margin-bottom: 8px;
-    }
-
-    .placeholder-hint {
-      font-size: 12px;
-      opacity: 0.7;
-    }
-
     /* 滚动条样式 */
-    .subtitle-container::-webkit-scrollbar {
-      width: 4px;
+    ::-webkit-scrollbar {
+      width: 6px;
     }
 
-    .subtitle-container::-webkit-scrollbar-track {
-      background: transparent;
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
     }
 
-    .subtitle-container::-webkit-scrollbar-thumb {
-      background: rgba(148, 163, 184, 0.2);
-      border-radius: 2px;
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 212, 255, 0.3);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 212, 255, 0.5);
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>LINGUA 字幕</h1>
-    <div class="header-controls">
-      <button class="header-btn pin-btn" id="pinBtn" onclick="togglePin()">📌 置顶</button>
-      <button class="header-btn" onclick="clearSubtitles()">清空</button>
-      <button class="header-btn" onclick="exportSubtitles()">导出</button>
-      <button class="header-btn" onclick="window.close()">关闭</button>
-    </div>
-  </div>
-
   <div class="subtitle-container">
+    <div class="subtitle-header" id="header">
+      <h3>LINGUA 字幕</h3>
+      <div class="subtitle-controls">
+        <button onclick="clearSubtitles()">清空</button>
+        <button onclick="exportSubtitles()">导出</button>
+        <button onclick="window.close()">关闭</button>
+      </div>
+    </div>
     <div class="subtitle-list" id="subtitleList">
-      <div class="placeholder">
+      <div class="subtitle-placeholder">
         <div class="placeholder-icon">📺</div>
         <div class="placeholder-text">等待翻译开始...</div>
         <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
@@ -182,113 +182,16 @@
 
   <script>
     let subtitles = [];
-    let isPinned = true;
-    let keepWindowOnTopInterval = null;
-    let activeSubtitleElement = null;
 
-    // 置顶功能
-    function togglePin() {
-      isPinned = !isPinned;
-      const btn = document.getElementById('pinBtn');
-      if (isPinned) {
-        btn.classList.add('active');
-        btn.textContent = '📌 置顶中';
-        startPinLoop();
-      } else {
-        btn.classList.remove('active');
-        btn.textContent = '📌 置顶';
-        stopPinLoop();
+    // 监听来自主页面的消息
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'subtitle') {
+        addSubtitle(event.data.original, event.data.translated, event.data.time);
       }
-    }
-
-    function startPinLoop() {
-      if (keepWindowOnTopInterval) return;
-      keepWindowOnTopInterval = setInterval(() => {
-        if (!isPinned) return;
-        try {
-          window.focus();
-          if (window.moveTo) {
-            const x = window.screenX || window.screenLeft;
-            const y = window.screenY || window.screenTop;
-            window.moveTo(x, y);
-          }
-        } catch (e) {}
-      }, 500);
-    }
-
-    function stopPinLoop() {
-      if (keepWindowOnTopInterval) {
-        clearInterval(keepWindowOnTopInterval);
-        keepWindowOnTopInterval = null;
-      }
-    }
-
-    // 清空字幕
-    function clearSubtitles() {
-      subtitles = [];
-      activeSubtitleElement = null;
-      const subtitleList = document.getElementById('subtitleList');
-      subtitleList.innerHTML = `
-        <div class="placeholder">
-          <div class="placeholder-icon">📺</div>
-          <div class="placeholder-text">字幕已清空</div>
-          <div class="placeholder-hint">等待新的翻译内容...</div>
-        </div>
-      `;
-    }
-
-    // 导出字幕
-    function exportSubtitles() {
-      if (subtitles.length === 0) {
-        alert('没有可导出的字幕');
-        return;
-      }
-
-      let srtContent = '';
-      subtitles.forEach((sub, index) => {
-        const startTime = formatSrtTime(index * 2);
-        const endTime = formatSrtTime((index + 1) * 2);
-        srtContent += `${index + 1}\n`;
-        srtContent += `${startTime} --> ${endTime}\n`;
-        srtContent += `${sub.original}\n`;
-        srtContent += `${sub.translated}\n\n`;
-      });
-
-      const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `subtitles_${new Date().toISOString().slice(0, 10)}.srt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    function formatSrtTime(seconds) {
-      const hours = Math.floor(seconds / 3600);
-      const mins = Math.floor((seconds % 3600) / 60);
-      const secs = Math.floor(seconds % 60);
-      const ms = Math.floor((seconds % 1) * 1000);
-      return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
-    }
-
-    // HTML 转义
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    // 更新字幕内容（流式）
-    function updateSubtitle(element, original, translated, time) {
-      if (!element) return;
-      const originalEl = element.querySelector('.subtitle-original');
-      const translatedEl = element.querySelector('.subtitle-translated');
-      if (originalEl) originalEl.textContent = original;
-      if (translatedEl) translatedEl.textContent = translated;
-    }
+    });
 
     // 添加字幕
-    function addSubtitle(original, translated, time, isStreaming = false) {
+    function addSubtitle(original, translated, time) {
       const subtitleList = document.getElementById('subtitleList');
 
       // 清空占位符
@@ -296,15 +199,16 @@
         subtitleList.innerHTML = '';
       }
 
-      const subtitle = { original, translated, time };
+      const subtitle = {
+        original: original,
+        translated: translated,
+        time: time
+      };
+
       subtitles.push(subtitle);
 
       const subtitleElement = document.createElement('div');
       subtitleElement.className = 'subtitle-item';
-      if (isStreaming) {
-        subtitleElement.classList.add('streaming');
-        subtitleElement.dataset.isStreaming = 'true';
-      }
       subtitleElement.innerHTML = `
         <div class="subtitle-original">${escapeHtml(original)}</div>
         <div class="subtitle-translated">${escapeHtml(translated)}</div>
@@ -322,56 +226,73 @@
       if (items.length > 20) {
         subtitleList.removeChild(items[0]);
       }
-
-      return subtitleElement;
     }
 
-    // 监听来自主页面的消息
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'subtitle') {
-        const isFinal = event.data.isFinal !== false;
+    // 清空字幕
+    function clearSubtitles() {
+      subtitles = [];
+      const subtitleList = document.getElementById('subtitleList');
+      subtitleList.innerHTML = `
+        <div class="subtitle-placeholder">
+          <div class="placeholder-icon">📺</div>
+          <div class="placeholder-text">等待翻译开始...</div>
+          <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
+        </div>
+      `;
+    }
 
-        if (!isFinal && activeSubtitleElement) {
-          // 流式更新：更新现有字幕
-          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
-        } else if (isFinal && activeSubtitleElement) {
-          // 最终结果：更新现有字幕并移除流式标记
-          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
-          activeSubtitleElement.classList.remove('streaming');
-          activeSubtitleElement.dataset.isStreaming = 'false';
-          activeSubtitleElement = null;
-        } else {
-          // 新字幕（最终结果，没有之前的流式字幕）
-          addSubtitle(event.data.original, event.data.translated, event.data.time, false);
-          activeSubtitleElement = null;
-        }
+    // 导出字幕
+    function exportSubtitles() {
+      if (subtitles.length === 0) {
+        alert('没有可导出的字幕');
+        return;
       }
-      if (event.data && event.data.type === 'init') {
-        console.log('字幕窗口已连接到主页面');
-        if (isPinned) {
-          document.getElementById('pinBtn').classList.add('active');
-          document.getElementById('pinBtn').textContent = '📌 置顶中';
-          startPinLoop();
-        }
+
+      let srt = '';
+      subtitles.forEach((subtitle, index) => {
+        srt += `${index + 1}\n`;
+        srt += `00:00:${String(index * 2).padStart(2, '0')},000 --> 00:00:${String((index + 1) * 2).padStart(2, '0')},000\n`;
+        srt += `${subtitle.translated}\n\n`;
+      });
+
+      const blob = new Blob([srt], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'subtitles.srt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 窗口拖拽
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    const header = document.getElementById('header');
+
+    header.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragOffsetX = e.clientX - window.screenX;
+      dragOffsetY = e.clientY - window.screenY;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        window.moveTo(e.clientX - dragOffsetX, e.clientY - dragOffsetY);
       }
     });
 
-    // 页面加载完成后通知主页面
-    window.onload = () => {
-      if (window.opener) {
-        window.opener.postMessage({ type: 'subtitleWindowReady' }, '*');
-      }
-      // 默认开启置顶
-      togglePin();
-    };
-
-    // 页面关闭前清理
-    window.onbeforeunload = () => {
-      stopPinLoop();
-      if (window.opener) {
-        window.opener.postMessage({ type: 'subtitleWindowClosed' }, '*');
-      }
-    };
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
   </script>
 </body>
 </html>

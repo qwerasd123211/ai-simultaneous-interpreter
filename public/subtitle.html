@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINGUA 字幕</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: rgba(10, 10, 15, 0.95);
+      color: white;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .subtitle-container {
+      padding: 15px;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subtitle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 8px;
+      cursor: move;
+      user-select: none;
+    }
+
+    .subtitle-header h3 {
+      font-size: 14px;
+      color: #00d4ff;
+      letter-spacing: 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .subtitle-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .subtitle-controls button {
+      padding: 6px 12px;
+      background: rgba(0, 212, 255, 0.1);
+      color: #00d4ff;
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .subtitle-controls button:hover {
+      background: rgba(0, 212, 255, 0.2);
+      border-color: #00d4ff;
+    }
+
+    .subtitle-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subtitle-item {
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      animation: fadeIn 0.3s ease;
+      border-left: 3px solid #00d4ff;
+    }
+
+    .subtitle-original {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 6px;
+      font-style: italic;
+    }
+
+    .subtitle-translated {
+      font-size: 18px;
+      color: white;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .subtitle-time {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.3);
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .subtitle-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    .placeholder-icon {
+      font-size: 48px;
+      opacity: 0.5;
+    }
+
+    .placeholder-text {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .placeholder-hint {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 212, 255, 0.3);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 212, 255, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="subtitle-container">
+    <div class="subtitle-header" id="header">
+      <h3>LINGUA 字幕</h3>
+      <div class="subtitle-controls">
+        <button onclick="clearSubtitles()">清空</button>
+        <button onclick="exportSubtitles()">导出</button>
+        <button onclick="window.close()">关闭</button>
+      </div>
+    </div>
+    <div class="subtitle-list" id="subtitleList">
+      <div class="subtitle-placeholder">
+        <div class="placeholder-icon">📺</div>
+        <div class="placeholder-text">等待翻译开始...</div>
+        <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let subtitles = [];
+
+    // 监听来自主页面的消息
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'subtitle') {
+        addSubtitle(event.data.original, event.data.translated, event.data.time);
+      }
+    });
+
+    // 添加字幕
+    function addSubtitle(original, translated, time) {
+      const subtitleList = document.getElementById('subtitleList');
+
+      // 清空占位符
+      if (subtitles.length === 0) {
+        subtitleList.innerHTML = '';
+      }
+
+      const subtitle = {
+        original: original,
+        translated: translated,
+        time: time
+      };
+
+      subtitles.push(subtitle);
+
+      const subtitleElement = document.createElement('div');
+      subtitleElement.className = 'subtitle-item';
+      subtitleElement.innerHTML = `
+        <div class="subtitle-original">${escapeHtml(original)}</div>
+        <div class="subtitle-translated">${escapeHtml(translated)}</div>
+        <div class="subtitle-time">${time}</div>
+      `;
+
+      subtitleList.appendChild(subtitleElement);
+
+      // 滚动到底部
+      const container = document.querySelector('.subtitle-container');
+      container.scrollTop = container.scrollHeight;
+
+      // 限制显示数量（保留最近 20 条）
+      const items = subtitleList.children;
+      if (items.length > 20) {
+        subtitleList.removeChild(items[0]);
+      }
+    }
+
+    // 清空字幕
+    function clearSubtitles() {
+      subtitles = [];
+      const subtitleList = document.getElementById('subtitleList');
+      subtitleList.innerHTML = `
+        <div class="subtitle-placeholder">
+          <div class="placeholder-icon">📺</div>
+          <div class="placeholder-text">等待翻译开始...</div>
+          <div class="placeholder-hint">请在主页面点击"开始翻译"</div>
+        </div>
+      `;
+    }
+
+    // 导出字幕
+    function exportSubtitles() {
+      if (subtitles.length === 0) {
+        alert('没有可导出的字幕');
+        return;
+      }
+
+      let srt = '';
+      subtitles.forEach((subtitle, index) => {
+        srt += `${index + 1}\n`;
+        srt += `00:00:${String(index * 2).padStart(2, '0')},000 --> 00:00:${String((index + 1) * 2).padStart(2, '0')},000\n`;
+        srt += `${subtitle.translated}\n\n`;
+      });
+
+      const blob = new Blob([srt], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'subtitles.srt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 窗口拖拽
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    const header = document.getElementById('header');
+
+    header.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragOffsetX = e.clientX - window.screenX;
+      dragOffsetY = e.clientY - window.screenY;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        window.moveTo(e.clientX - dragOffsetX, e.clientY - dragOffsetY);
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+  </script>
+</body>
+</html>

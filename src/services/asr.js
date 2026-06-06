@@ -218,22 +218,67 @@ async function transcribeWithXfyun(audioData, fileName) {
 
 /**
  * 模拟识别（开发测试用）
+ * 提供多样化的测试数据，覆盖不同场景
  */
+const mockPhrases = [
+  {
+    text: 'Hello, welcome to the AI simultaneous interpreter.',
+    segments: [
+      { start: 0, end: 2.5, text: 'Hello, welcome to' },
+      { start: 2.5, end: 5.0, text: 'the AI simultaneous interpreter.' }
+    ]
+  },
+  {
+    text: 'This tool will help you understand English content in real-time.',
+    segments: [
+      { start: 0, end: 3.0, text: 'This tool will help you' },
+      { start: 3.0, end: 6.0, text: 'understand English content' },
+      { start: 6.0, end: 8.0, text: 'in real-time.' }
+    ]
+  },
+  {
+    text: 'It provides Chinese subtitles for videos, podcasts, and live streams.',
+    segments: [
+      { start: 0, end: 2.5, text: 'It provides Chinese subtitles' },
+      { start: 2.5, end: 5.0, text: 'for videos, podcasts,' },
+      { start: 5.0, end: 7.5, text: 'and live streams.' }
+    ]
+  },
+  {
+    text: 'The recognition accuracy is continuously improving with AI technology.',
+    segments: [
+      { start: 0, end: 3.0, text: 'The recognition accuracy' },
+      { start: 3.0, end: 5.5, text: 'is continuously improving' },
+      { start: 5.5, end: 8.0, text: 'with AI technology.' }
+    ]
+  },
+  {
+    text: 'You can use it for learning English, watching movies, or attending online meetings.',
+    segments: [
+      { start: 0, end: 3.0, text: 'You can use it for' },
+      { start: 3.0, end: 5.5, text: 'learning English,' },
+      { start: 5.5, end: 8.0, text: 'watching movies,' },
+      { start: 8.0, end: 11.0, text: 'or attending online meetings.' }
+    ]
+  }
+];
+
+let mockIndex = 0;
+
 async function transcribeMock(audioData, fileName) {
   console.log('[ASR] 使用模拟识别:', fileName);
 
-  // 模拟处理时间
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // 模拟处理时间（随机 800-1500ms）
+  const delay = 800 + Math.random() * 700;
+  await new Promise(resolve => setTimeout(resolve, delay));
+
+  // 循环使用测试数据
+  const phrase = mockPhrases[mockIndex % mockPhrases.length];
+  mockIndex++;
 
   return {
-    text: 'Hello, welcome to the AI simultaneous interpreter. This tool will help you understand English content in real-time by providing Chinese subtitles.',
-    segments: [
-      { start: 0, end: 2.5, text: 'Hello, welcome to' },
-      { start: 2.5, end: 5.0, text: 'the AI simultaneous interpreter.' },
-      { start: 5.0, end: 8.0, text: 'This tool will help you understand' },
-      { start: 8.0, end: 10.5, text: 'English content in real-time' },
-      { start: 10.5, end: 13.0, text: 'by providing Chinese subtitles.' }
-    ]
+    text: phrase.text,
+    segments: phrase.segments
   };
 }
 

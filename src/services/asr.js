@@ -63,40 +63,66 @@ async function transcribeWithXfyun(audioData, fileName) {
       text: '',
       segments: []
     };
+    let hasResolved = false;
+
+    // 超时处理
+    const timeout = setTimeout(() => {
+      if (!hasResolved) {
+        hasResolved = true;
+        ws.close();
+        if (result.text) {
+          console.log('[ASR] 超时但已有部分结果:', result.text);
+          resolve(result);
+        } else {
+          reject(new Error('语音识别超时'));
+        }
+      }
+    }, 30000);
 
     ws.on('open', () => {
-      console.log('[ASR] WebSocket 连接已建立');
+      console.log('[ASR] WebSocket 连接已建立，音频数据大小:', audioData.length, '字节');
 
       // 发送音频数据
-      const frameSize = 1280; // 每帧大小
+      const frameSize = 1280; // 每帧大小，约 40ms 音频 (16kHz * 16bit * 1ch / 8 * 0.04s = 1280)
       const interval = 40; // 发送间隔（毫秒）
 
-      // 分帧发送音频数据
+      // 第一帧包含 common 和 business
+      let isFirst = true;
+
       for (let i = 0; i < audioData.length; i += frameSize) {
         const frame = audioData.slice(i, i + frameSize);
         const isLast = i + frameSize >= audioData.length;
 
         setTimeout(() => {
-          const message = {
-            common: {
-              app_id: XFYUN_APPID
-            },
-            business: {
+          if (ws.readyState !== WebSocket.OPEN) return;
+
+          const message = {};
+
+          // 只在第一帧发送 common 和 business
+          if (isFirst) {
+            message.common = { app_id: XFYUN_APPID };
+            message.business = {
               language: 'en_us', // 英语
               domain: 'iat',
               accent: 'mandarin',
               vad_eos: 3000,
               dwa: 'wpgs'
-            },
-            data: {
-              status: isLast ? 2 : (i === 0 ? 0 : 1),
-              format: 'audio/L16;rate=16000',
-              encoding: 'raw',
-              audio: frame.toString('base64')
-            }
+            };
+            isFirst = false;
+          }
+
+          message.data = {
+            status: isLast ? 2 : (i === 0 ? 0 : 1),
+            format: 'audio/L16;rate=16000',
+            encoding: 'raw',
+            audio: frame.toString('base64')
           };
 
           ws.send(JSON.stringify(message));
+
+          if (isLast) {
+            console.log('[ASR] 音频数据发送完毕');
+          }
         }, Math.floor(i / frameSize) * interval);
       }
     });
@@ -104,10 +130,15 @@ async function transcribeWithXfyun(audioData, fileName) {
     ws.on('message', (data) => {
       try {
         const response = JSON.parse(data);
+        console.log('[ASR] 收到响应: code=' + response.code + ' status=' + (response.data ? response.data.status : '?'));
 
         if (response.code !== 0) {
           console.error('[ASR] 讯飞 API 错误:', response.code, response.message);
-          reject(new Error(`讯飞 API 错误: ${response.message}`));
+          if (!hasResolved) {
+            hasResolved = true;
+            clearTimeout(timeout);
+            reject(new Error(`讯飞 API 错误: ${response.message}`));
+          }
           return;
         }
 
@@ -126,7 +157,7 @@ async function transcribeWithXfyun(audioData, fileName) {
               // 追加模式
               result.text += text;
             } else {
-              // 替换模式
+              // 替换模式（一般是 rpl 或完整结果）
               result.text = text;
             }
 
@@ -136,13 +167,20 @@ async function transcribeWithXfyun(audioData, fileName) {
               end: (result.segments.length + 1) * 2,
               text: text
             });
+
+            console.log('[ASR] 当前识别结果:', result.text);
           }
         }
 
         // 检查是否完成
         if (response.data && response.data.status === 2) {
-          ws.close();
-          resolve(result);
+          console.log('[ASR] 识别完成，最终结果:', result.text);
+          if (!hasResolved) {
+            hasResolved = true;
+            clearTimeout(timeout);
+            ws.close();
+            resolve(result);
+          }
         }
       } catch (e) {
         console.error('[ASR] 解析响应错误:', e);
@@ -151,26 +189,26 @@ async function transcribeWithXfyun(audioData, fileName) {
 
     ws.on('error', (error) => {
       console.error('[ASR] WebSocket 错误:', error);
-      reject(error);
+      if (!hasResolved) {
+        hasResolved = true;
+        clearTimeout(timeout);
+        reject(error);
+      }
     });
 
     ws.on('close', () => {
       console.log('[ASR] WebSocket 连接已关闭');
-      // 如果没有收到完成状态，返回当前结果
-      if (result.text) {
+      clearTimeout(timeout);
+      // 如果没有收到完成状态，但已有结果，返回当前结果
+      if (!hasResolved && result.text) {
+        hasResolved = true;
+        console.log('[ASR] 连接关闭但返回已有结果:', result.text);
         resolve(result);
+      } else if (!hasResolved) {
+        hasResolved = true;
+        reject(new Error('语音识别未返回结果'));
       }
     });
-
-    // 超时处理
-    setTimeout(() => {
-      ws.close();
-      if (result.text) {
-        resolve(result);
-      } else {
-        reject(new Error('语音识别超时'));
-      }
-    }, 30000);
   });
 }
 

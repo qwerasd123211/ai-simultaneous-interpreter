@@ -61,11 +61,30 @@
       font-size: 12px;
       cursor: pointer;
       transition: all 0.3s ease;
+      white-space: nowrap;
     }
 
     .subtitle-controls button:hover {
       background: rgba(0, 212, 255, 0.2);
       border-color: #00d4ff;
+    }
+
+    .subtitle-controls button.active {
+      background: rgba(0, 212, 255, 0.2);
+      border-color: #00d4ff;
+      box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+    }
+
+    .subtitle-controls button.pin-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .subtitle-controls button.pin-btn.active {
+      background: rgba(0, 212, 255, 0.15);
+      border-color: #00d4ff;
+      color: #00d4ff;
     }
 
     .subtitle-list {
@@ -166,6 +185,7 @@
     <div class="subtitle-header" id="header">
       <h3>LINGUA 字幕</h3>
       <div class="subtitle-controls">
+        <button class="pin-btn" id="pinBtn" onclick="togglePin()" title="窗口置顶（尽量保持在前）">📌 置顶</button>
         <button onclick="clearSubtitles()">清空</button>
         <button onclick="exportSubtitles()">导出</button>
         <button onclick="window.close()">关闭</button>
@@ -182,16 +202,98 @@
 
   <script>
     let subtitles = [];
+    let pinInterval = null;
+    let isPinned = true; // 默认开启置顶
+
+    // 窗口置顶功能（浏览器安全策略限制，尽力而为）
+    function togglePin() {
+      isPinned = !isPinned;
+      const btn = document.getElementById('pinBtn');
+      if (isPinned) {
+        btn.classList.add('active');
+        btn.textContent = '📌 置顶中';
+        startPinLoop();
+      } else {
+        btn.classList.remove('active');
+        btn.textContent = '📌 置顶';
+        stopPinLoop();
+      }
+    }
+
+    function startPinLoop() {
+      stopPinLoop();
+      pinInterval = setInterval(() => {
+        if (!isPinned) return;
+        try {
+          // 尝试让窗口保持活跃
+          if (document.hidden === false) {
+            // window.focus() 受浏览器限制，不一定生效
+          }
+        } catch (e) {}
+      }, 2000);
+    }
+
+    function stopPinLoop() {
+      if (pinInterval) {
+        clearInterval(pinInterval);
+        pinInterval = null;
+      }
+    }
+
+    // 当前活跃字幕元素（用于流式更新）
+    let activeSubtitleElement = null;
 
     // 监听来自主页面的消息
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'subtitle') {
-        addSubtitle(event.data.original, event.data.translated, event.data.time);
+        const isFinal = event.data.isFinal !== false;
+
+        if (!isFinal && activeSubtitleElement) {
+          // 流式更新：更新现有字幕
+          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
+        } else if (isFinal && activeSubtitleElement) {
+          // 最终结果：更新现有字幕并移除流式标记
+          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
+          activeSubtitleElement.dataset.isStreaming = 'false';
+          activeSubtitleElement.style.borderLeft = '';
+          activeSubtitleElement = null;
+        } else {
+          // 新字幕（最终结果，没有之前的流式字幕）
+          addSubtitle(event.data.original, event.data.translated, event.data.time, false);
+          activeSubtitleElement = null;
+        }
+      }
+      if (event.data && event.data.type === 'init') {
+        console.log('字幕窗口已连接到主页面');
+        // 连接后自动开启置顶
+        if (isPinned) {
+          document.getElementById('pinBtn').classList.add('active');
+          document.getElementById('pinBtn').textContent = '📌 置顶中';
+          startPinLoop();
+        }
       }
     });
 
+    // 更新字幕内容（流式）
+    function updateSubtitle(element, original, translated, time) {
+      if (!element) return;
+      const originalEl = element.querySelector('.subtitle-original');
+      const translatedEl = element.querySelector('.subtitle-translated');
+      if (originalEl) originalEl.textContent = original;
+      if (translatedEl) translatedEl.textContent = translated;
+    }
+
+    // 检测主页面是否关闭
+    const checkOpener = setInterval(() => {
+      if (window.opener && window.opener.closed) {
+        clearInterval(checkOpener);
+        // 主页面已关闭，但字幕窗口保持打开
+        console.log('主页面已关闭');
+      }
+    }, 5000);
+
     // 添加字幕
-    function addSubtitle(original, translated, time) {
+    function addSubtitle(original, translated, time, isStreaming = false) {
       const subtitleList = document.getElementById('subtitleList');
 
       // 清空占位符
@@ -209,6 +311,10 @@
 
       const subtitleElement = document.createElement('div');
       subtitleElement.className = 'subtitle-item';
+      if (isStreaming) {
+        subtitleElement.dataset.isStreaming = 'true';
+        subtitleElement.style.borderLeft = '3px solid #00d4ff';
+      }
       subtitleElement.innerHTML = `
         <div class="subtitle-original">${escapeHtml(original)}</div>
         <div class="subtitle-translated">${escapeHtml(translated)}</div>
@@ -226,6 +332,8 @@
       if (items.length > 20) {
         subtitleList.removeChild(items[0]);
       }
+
+      return subtitleElement;
     }
 
     // 清空字幕

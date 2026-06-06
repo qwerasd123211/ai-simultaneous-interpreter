@@ -13,6 +13,9 @@ let subtitles = [];
 let history = [];
 let subtitleWindow = null;
 let keepWindowOnTopInterval = null;
+let pipAnimationId = null;
+let currentSubtitleOriginal = '';
+let currentSubtitleTranslated = '';
 
 // DOM 元素
 const elements = {
@@ -41,6 +44,7 @@ function initElements() {
   elements.startBtn = document.getElementById('startBtn');
   elements.pauseBtn = document.getElementById('pauseBtn');
   elements.stopBtn = document.getElementById('stopBtn');
+  elements.testBtn = document.getElementById('testBtn');
   elements.progressFill = document.getElementById('progressFill');
   elements.progressPercent = document.getElementById('progressPercent');
   elements.status = document.getElementById('status');
@@ -249,6 +253,10 @@ async function startTranslation() {
     // 打开独立字幕窗口
     openSubtitleWindow();
 
+    // 显示页面浮动字幕层（备用）
+    showFloatingSubtitle();
+    clearFloatingSubtitle();
+
     // 建立 WebSocket 连接
     connectWebSocket();
 
@@ -276,8 +284,29 @@ async function startTranslation() {
 
 // 打开独立字幕窗口（画中画模式）
 async function openSubtitleWindow() {
+  // 先关闭已有窗口
+  if (subtitleWindow && !subtitleWindow.closed) {
+    subtitleWindow.close();
+    subtitleWindow = null;
+  }
+  if (keepWindowOnTopInterval) {
+    clearInterval(keepWindowOnTopInterval);
+    keepWindowOnTopInterval = null;
+  }
+
   try {
-    // 创建视频元素（画中画需要视频元素）
+    // 创建 canvas 用于画中画
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 300;
+    canvas.id = 'pipCanvas';
+    canvas.style.display = 'none';
+    document.body.appendChild(canvas);
+
+    // 绘制初始字幕
+    drawSubtitleOnCanvas('等待翻译开始...', '');
+
+    // 创建视频元素
     const video = document.createElement('video');
     video.id = 'pipVideo';
     video.style.display = 'none';
@@ -285,20 +314,9 @@ async function openSubtitleWindow() {
     video.muted = true;
     document.body.appendChild(video);
 
-    // 创建 canvas 用于绘制字幕
-    const canvas = document.createElement('canvas');
-    canvas.width = 400;
-    canvas.height = 300;
-    canvas.id = 'subtitleCanvas';
-    canvas.style.display = 'none';
-    document.body.appendChild(canvas);
-
     // 将 canvas 作为视频源
-    const stream = canvas.captureStream(30); // 30fps
+    const stream = canvas.captureStream(1);
     video.srcObject = stream;
-
-    // 绘制初始字幕
-    updateSubtitleCanvas('等待翻译开始...', '');
 
     // 等待视频加载
     await new Promise((resolve) => {
@@ -310,16 +328,92 @@ async function openSubtitleWindow() {
       await video.requestPictureInPicture();
       console.log('画中画模式已启动');
     } else {
-      showError('浏览器不支持画中画模式');
+      console.log('浏览器不支持画中画，使用浮动字幕');
     }
   } catch (error) {
     console.error('画中画错误:', error);
-    showError('画中画模式启动失败: ' + error.message);
+    console.log('使用浮动字幕作为备选方案');
   }
 }
 
-// 更新字幕 canvas
-function updateSubtitleCanvas(original, translated) {
+// 在 canvas 上绘制字幕
+function drawSubtitleOnCanvas(original, translated) {
+  const canvas = document.getElementById('pipCanvas');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+
+  // 清空
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.95)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 边框
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+
+  // 标题
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 16px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('LINGUA 字幕', canvas.width / 2, 30);
+
+  // 分隔线
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
+  ctx.beginPath();
+  ctx.moveTo(20, 45);
+  ctx.lineTo(canvas.width - 20, 45);
+  ctx.stroke();
+
+  // 原文
+  if (original) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    wrapText(ctx, original, 20, 70, canvas.width - 40, 16);
+  }
+
+  // 译文
+  if (translated) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'left';
+    wrapText(ctx, translated, 20, 150, canvas.width - 40, 22);
+  }
+
+  // 时间
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().toLocaleTimeString(), canvas.width - 20, canvas.height - 15);
+}
+
+// 文本自动换行
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split('');
+  let line = '';
+  let currentY = y;
+
+  for (const char of words) {
+    const testLine = line + char;
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && line !== '') {
+      ctx.fillText(line, x, currentY);
+      line = char;
+      currentY += lineHeight;
+      if (currentY > 280) break; // 防止超出 canvas
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, currentY);
+}
+
+// 绘制字幕到 canvas（供画中画循环调用）
+function drawSubtitleCanvas(original, translated) {
+
+// 绘制字幕到 canvas（供画中画循环调用）
+function drawSubtitleCanvas(original, translated) {
   const canvas = document.getElementById('subtitleCanvas');
   if (!canvas) return;
 
@@ -404,6 +498,12 @@ function updateSubtitleCanvas(original, translated) {
   ctx.fillText(new Date().toLocaleTimeString(), canvas.width - 20, canvas.height - 15);
 }
 
+// 更新字幕（更新状态变量，由绘制循环读取）
+function updateSubtitleCanvas(original, translated) {
+  currentSubtitleOriginal = original || '';
+  currentSubtitleTranslated = translated || '';
+}
+
 function pauseTranslation() {
   if (isPaused) {
     // 继续
@@ -418,14 +518,68 @@ function pauseTranslation() {
   }
 }
 
+// 测试模式：不依赖语音识别，直接发送模拟字幕验证显示
+let isTestMode = false;
+function toggleTestMode() {
+  if (!isTestMode) {
+    // 开启测试模式
+    isTestMode = true;
+    elements.testBtn.classList.add('active');
+    elements.testBtn.querySelector('span:last-child').textContent = '停止测试';
+    updateStatus('测试模式已开启，正在发送模拟字幕...');
+
+    // 打开字幕窗口
+    openSubtitleWindow();
+    showFloatingSubtitle();
+    clearFloatingSubtitle();
+
+    // 连接 WebSocket 并发送测试指令
+    connectWebSocket();
+
+    // 等 WebSocket 连接成功后发送测试指令
+    const checkWs = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'test', enabled: true }));
+        clearInterval(checkWs);
+      }
+    }, 200);
+    setTimeout(() => clearInterval(checkWs), 10000);
+  } else {
+    // 关闭测试模式
+    isTestMode = false;
+    elements.testBtn.classList.remove('active');
+    elements.testBtn.querySelector('span:last-child').textContent = '测试字幕';
+    updateStatus('测试模式已关闭');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'test', enabled: false }));
+    }
+    stopTranslation();
+  }
+}
+
 function stopTranslation() {
   isTranslating = false;
   isPaused = false;
 
-  // 停止媒体录制
+  // 停止媒体录制（旧 MediaRecorder 方式，兼容清理）
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }
+
+  // 停止 AudioContext 音频捕获
+  if (processorRef) {
+    processorRef.disconnect();
+    processorRef = null;
+  }
+  if (sourceRef) {
+    sourceRef.disconnect();
+    sourceRef = null;
+  }
+  if (audioContextRef) {
+    audioContextRef.close().catch(() => {});
+    audioContextRef = null;
+  }
+  pcmBufferQueue = [];
 
   // 停止音频流
   if (audioStream) {
@@ -450,6 +604,10 @@ function stopTranslation() {
     clearInterval(keepWindowOnTopInterval);
     keepWindowOnTopInterval = null;
   }
+
+  // 隐藏浮动字幕面板
+  hideFloatingPanel();
+  clearFloatingSubtitles();
 
   // 更新按钮状态
   elements.startBtn.disabled = false;
@@ -494,6 +652,10 @@ function connectWebSocket() {
     }
   };
 
+  // 流式显示状态
+  let currentSubtitleElement = null;
+  let currentSubtitleData = null;
+
   ws.onerror = (error) => {
     console.error('WebSocket 错误:', error);
     showError('连接错误');
@@ -509,62 +671,246 @@ function connectWebSocket() {
 }
 
 // ============================================
-// 音频捕获
+// 音频捕获（使用 AudioContext 获取原始 PCM）
 // ============================================
+
+let audioContextRef = null;
+let processorRef = null;
+let sourceRef = null;
+
+// 流式识别状态
+let streamAsrWs = null;  // 与后端的流式识别 WebSocket
+let isStreamAsrOpen = false;
+let streamAudioBuffer = [];
+let lastTranscribedText = '';
+let lastSubtitleId = 0;
 
 function startAudioCapture() {
   if (!audioStream) return;
 
-  // 创建 MediaRecorder
-  const options = { mimeType: 'audio/webm;codecs=opus' };
-
   try {
-    mediaRecorder = new MediaRecorder(audioStream, options);
-  } catch (e) {
-    // 如果不支持 webm，尝试其他格式
-    try {
-      mediaRecorder = new MediaRecorder(audioStream);
-    } catch (e2) {
-      showError('浏览器不支持音频录制');
-      return;
-    }
+    // 创建 AudioContext（使用系统默认采样率）
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    audioContextRef = audioContext;
+
+    // 创建媒体源
+    const source = audioContext.createMediaStreamSource(audioStream);
+    sourceRef = source;
+
+    // 创建 ScriptProcessorNode 获取原始 PCM 数据
+    const bufferSize = 4096;
+    const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+    processorRef = processor;
+
+    // 音频缓冲区：积累一小段后发送（保持连续流）
+    let pcmAccumulator = [];
+    let lastSendTime = 0;
+
+    processor.onaudioprocess = (event) => {
+      if (isPaused) return;
+
+      // 获取输入音频数据（Float32 格式，范围 -1 到 1）
+      const inputData = event.inputBuffer.getChannelData(0);
+
+      // 将 Float32 转换为 Int16 (PCM 16-bit)
+      const pcmFrame = new Int16Array(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        const sample = Math.max(-1, Math.min(1, inputData[i]));
+        pcmFrame[i] = Math.round(sample * 32767);
+      }
+
+      pcmAccumulator.push(pcmFrame);
+
+      // 每 100ms 发送一次音频（约 10 帧），保持连续流
+      const now = Date.now();
+      const totalSamples = pcmAccumulator.reduce((sum, buf) => sum + buf.length, 0);
+      const targetSamples = Math.floor(audioContext.sampleRate * 0.1); // 0.1 秒 = 100ms
+
+      if (totalSamples >= targetSamples || (now - lastSendTime > 100 && totalSamples > 0)) {
+        lastSendTime = now;
+
+        // 合并所有 PCM 数据
+        let mergedLength = 0;
+        pcmAccumulator.forEach(buf => mergedLength += buf.length);
+        const mergedPcm = new Int16Array(mergedLength);
+        let offset = 0;
+        pcmAccumulator.forEach(buf => {
+          mergedPcm.set(buf, offset);
+          offset += buf.length;
+        });
+        pcmAccumulator = [];
+
+        // 下采样到 16kHz
+        const sourceRate = audioContext.sampleRate;
+        const targetRate = 16000;
+        let downsampled;
+
+        if (sourceRate === targetRate) {
+          downsampled = mergedPcm;
+        } else {
+          const ratio = sourceRate / targetRate;
+          const outputLength = Math.floor(mergedPcm.length / ratio);
+          downsampled = new Int16Array(outputLength);
+          for (let i = 0; i < outputLength; i++) {
+            const srcIndex = Math.floor(i * ratio);
+            if (srcIndex < mergedPcm.length) {
+              downsampled[i] = mergedPcm[srcIndex];
+            }
+          }
+        }
+
+        // 发送到 WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const bytes = new Uint8Array(downsampled.buffer);
+          ws.send(JSON.stringify({
+            type: 'audio',
+            data: Array.from(bytes)
+          }));
+        }
+      }
+    };
+
+    // 连接音频图
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    updateStatus('正在实时翻译...');
+    console.log('[音频] AudioContext PCM 捕获已启动，采样率:', audioContext.sampleRate, '发送间隔: 100ms');
+  } catch (error) {
+    console.error('音频捕获错误:', error);
+    showError('音频捕获失败: ' + error.message);
   }
-
-  // 每秒发送一次音频数据
-  mediaRecorder.ondataavailable = (event) => {
-    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && !isPaused) {
-      // 将音频数据转换为 ArrayBuffer 并发送
-      event.data.arrayBuffer().then(buffer => {
-        ws.send(JSON.stringify({
-          type: 'audio',
-          data: Array.from(new Uint8Array(buffer))
-        }));
-      });
-    }
-  };
-
-  // 每秒触发一次数据
-  mediaRecorder.start(1000);
-
-  updateStatus('正在实时翻译...');
 }
 
 // ============================================
 // 结果处理
 // ============================================
 
+// 当前正在显示的字幕元素（用于流式更新）
+let activeSubtitleItem = null;
+
 function handleTranscribeResult(data) {
-  console.log('识别结果:', data);
+  console.log('识别结果:', data.text, data.isFinal ? '(最终)' : '(中间)');
 }
 
 function handleTranslateResult(data) {
-  console.log('翻译结果:', data);
+  console.log('翻译结果:', data.translated, data.isFinal ? '(最终)' : '(中间)');
 
-  // 添加到历史记录
-  addToHistory(data.original, data.translated);
+  const isFinal = data.isFinal !== false;
 
-  // 更新字幕 canvas（画中画模式）
-  updateSubtitleCanvas(data.original, data.translated);
+  // 确保浮动面板显示
+  showFloatingPanel();
+
+  // 更新画中画字幕
+  drawSubtitleOnCanvas(data.original, data.translated);
+
+  // 如果是中间结果，更新当前字幕；如果是最终结果，创建新字幕
+  if (!isFinal && activeSubtitleItem) {
+    // 更新现有字幕（流式更新）
+    updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
+  } else {
+    // 最终结果：添加到历史并创建新字幕
+    if (isFinal) {
+      addToHistory(data.original, data.translated);
+    }
+
+    // 页面浮动字幕面板
+    if (isFinal) {
+      addFloatingSubtitleToPanel(data.original, data.translated);
+      activeSubtitleItem = null;
+    } else {
+      activeSubtitleItem = addOrUpdateFloatingSubtitleToPanel(data.original, data.translated);
+    }
+
+    // 独立字幕弹窗（如果打开）
+    if (subtitleWindow && !subtitleWindow.closed) {
+      try {
+        subtitleWindow.postMessage({
+          type: 'subtitle',
+          original: data.original,
+          translated: data.translated,
+          isFinal: isFinal,
+          time: new Date().toLocaleTimeString()
+        }, '*');
+      } catch (e) {
+        console.error('发送字幕到窗口失败:', e);
+      }
+    }
+  }
+}
+
+// 更新字幕显示（流式）
+function updateSubtitleDisplay(element, original, translated) {
+  if (!element) return;
+
+  const originalEl = element.querySelector('.floating-subtitle-original');
+  const translatedEl = element.querySelector('.floating-subtitle-translated');
+
+  if (originalEl) originalEl.textContent = original;
+  if (translatedEl) translatedEl.textContent = translated;
+}
+
+// 添加字幕到浮动面板
+function addFloatingSubtitleToPanel(original, translated) {
+  const subtitleList = document.getElementById('floatingSubtitleList');
+  if (!subtitleList) return;
+
+  const subtitleElement = document.createElement('div');
+  subtitleElement.className = 'floating-subtitle-item';
+  subtitleElement.innerHTML = `
+    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
+    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
+    <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
+  `;
+
+  subtitleList.appendChild(subtitleElement);
+
+  // 滚动到底部
+  subtitleList.scrollTop = subtitleList.scrollHeight;
+
+  // 限制显示数量
+  const items = subtitleList.children;
+  if (items.length > 20) {
+    subtitleList.removeChild(items[0]);
+  }
+}
+
+// 添加或更新流式字幕到浮动面板（返回元素引用）
+function addOrUpdateFloatingSubtitleToPanel(original, translated) {
+  const subtitleList = document.getElementById('floatingSubtitleList');
+  if (!subtitleList) return null;
+
+  // 查找最后一个流式字幕元素
+  const lastItem = subtitleList.lastElementChild;
+
+  if (lastItem && lastItem.dataset.isStreaming === 'true') {
+    // 更新最后一个字幕
+    updateSubtitleDisplay(lastItem, original, translated);
+    return lastItem;
+  }
+
+  // 创建新字幕元素
+  const subtitleElement = document.createElement('div');
+  subtitleElement.className = 'floating-subtitle-item streaming';
+  subtitleElement.dataset.isStreaming = 'true';
+  subtitleElement.innerHTML = `
+    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
+    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
+    <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
+  `;
+
+  subtitleList.appendChild(subtitleElement);
+
+  // 滚动到底部
+  subtitleList.scrollTop = subtitleList.scrollHeight;
+
+  // 限制显示数量
+  const items = subtitleList.children;
+  if (items.length > 20) {
+    subtitleList.removeChild(items[0]);
+  }
+
+  return subtitleElement;
 }
 
 // ============================================
@@ -652,3 +998,86 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ============================================
+// 浮动字幕面板
+// ============================================
+
+let floatingPanelActive = false;
+let floatingPanelDrag = false;
+let floatingPanelDragOffset = { x: 0, y: 0 };
+
+function showFloatingPanel() {
+  const panel = document.getElementById('floatingSubtitlePanel');
+  if (panel) {
+    panel.style.display = 'flex';
+    floatingPanelActive = true;
+  }
+}
+
+function hideFloatingPanel() {
+  const panel = document.getElementById('floatingSubtitlePanel');
+  if (panel) {
+    panel.style.display = 'none';
+    floatingPanelActive = false;
+  }
+}
+
+function toggleFloatingPanel() {
+  const panel = document.getElementById('floatingSubtitlePanel');
+  if (panel) {
+    panel.classList.toggle('minimized');
+  }
+}
+
+function clearFloatingSubtitles() {
+  const list = document.getElementById('floatingSubtitleList');
+  if (list) {
+    list.innerHTML = '';
+  }
+}
+
+// 浮动面板拖拽
+function initFloatingPanelDrag() {
+  const header = document.getElementById('floatingSubtitleHeader');
+  const panel = document.getElementById('floatingSubtitlePanel');
+  if (!header || !panel) return;
+
+  header.addEventListener('mousedown', (e) => {
+    floatingPanelDrag = true;
+    const rect = panel.getBoundingClientRect();
+    floatingPanelDragOffset.x = e.clientX - rect.left;
+    floatingPanelDragOffset.y = e.clientY - rect.top;
+    panel.style.cursor = 'grabbing';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!floatingPanelDrag) return;
+    const panel = document.getElementById('floatingSubtitlePanel');
+    if (!panel) return;
+
+    let x = e.clientX - floatingPanelDragOffset.x;
+    let y = e.clientY - floatingPanelDragOffset.y;
+
+    // 限制在视口内
+    const maxX = window.innerWidth - panel.offsetWidth;
+    const maxY = window.innerHeight - panel.offsetHeight;
+    x = Math.max(0, Math.min(x, maxX));
+    y = Math.max(0, Math.min(y, maxY));
+
+    panel.style.left = x + 'px';
+    panel.style.top = y + 'px';
+    panel.style.right = 'auto';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (floatingPanelDrag) {
+      floatingPanelDrag = false;
+      const panel = document.getElementById('floatingSubtitlePanel');
+      if (panel) panel.style.cursor = 'default';
+    }
+  });
+}
+
+// 页面加载时初始化拖拽
+document.addEventListener('DOMContentLoaded', initFloatingPanelDrag);

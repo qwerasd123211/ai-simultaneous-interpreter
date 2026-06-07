@@ -24,6 +24,22 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'ai-simultaneous-interpreter',
+    timestamp: new Date().toISOString(),
+    dependencies: {
+      deepseek: Boolean(process.env.DEEPSEEK_API_KEY),
+      xfyun: Boolean(
+        process.env.XFYUN_APPID &&
+        process.env.XFYUN_API_KEY &&
+        process.env.XFYUN_API_SECRET
+      )
+    }
+  });
+});
+
 // WebSocket 连接处理
 wss.on('connection', (ws) => {
   console.log('客户端已连接');

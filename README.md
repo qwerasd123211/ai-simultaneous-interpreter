@@ -5,7 +5,7 @@ LINGUA 是一个面向英语视频、演讲、网课和技术分享的 AI 同声
 ## 演示入口
 
 - 在线演示: https://ai-simultaneous-interpreter.vercel.app/
-- Demo 视频: 提交前将公开视频链接放到这里
+- Demo 视频: [LINGUA项目展示-哔哩哔哩](https://b23.tv/ikQ2kkq)
 - Demo 视频脚本: [docs/demo-video-script.md](docs/demo-video-script.md)
 - 部署说明: [docs/deployment.md](docs/deployment.md)
 

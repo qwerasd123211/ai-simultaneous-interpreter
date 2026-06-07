@@ -44,10 +44,43 @@ const elements = {
 
 document.addEventListener('DOMContentLoaded', () => {
   initElements();
+  redirectFileProtocolToServer();
   initTypingEffect();
   loadHistory();
   createFloatingSubtitle();
 });
+
+function getServerOrigin() {
+  if (window.location.protocol === 'file:') {
+    return 'http://localhost:3000';
+  }
+
+  return window.location.origin;
+}
+
+function getWebSocketUrl() {
+  if (window.location.protocol === 'file:') {
+    return 'ws://localhost:3000';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
+}
+
+async function redirectFileProtocolToServer() {
+  if (window.location.protocol !== 'file:') return;
+
+  updateStatus('请通过 http://localhost:3000 使用实时翻译，正在尝试切换...');
+
+  try {
+    await fetch('http://localhost:3000/health', { cache: 'no-store' });
+    setTimeout(() => {
+      window.location.replace('http://localhost:3000/');
+    }, 600);
+  } catch (error) {
+    showError('当前是本地文件模式，无法连接后端。请先运行 npm start，然后打开 http://localhost:3000');
+  }
+}
 
 function initElements() {
   elements.startBtn = document.getElementById('startBtn');
@@ -578,7 +611,7 @@ async function openSubtitleWindow() {
     }
 
     // 使用 window.open 打开字幕页面弹窗
-    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    const subtitleUrl = `${getServerOrigin()}/subtitle.html`;
     subtitleWindow = window.open(
       subtitleUrl,
       'LINGUA_Subtitle',
@@ -622,7 +655,7 @@ async function openSubtitleWindow() {
   } catch (error) {
     console.warn('打开画中画字幕窗口失败，回退到普通弹窗:', error);
 
-    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    const subtitleUrl = `${getServerOrigin()}/subtitle.html`;
     subtitleWindow = window.open(
       subtitleUrl,
       'LINGUA_Subtitle',
@@ -843,8 +876,7 @@ function stopTranslation() {
 // ============================================
 
 function connectWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+  const wsUrl = getWebSocketUrl();
 
   ws = new WebSocket(wsUrl);
 

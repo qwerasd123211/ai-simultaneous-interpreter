@@ -4,7 +4,7 @@ LINGUA 是一个面向英语视频、演讲、网课和技术分享的 AI 同声
 
 ## 演示入口
 
-- 在线演示: https://ai-simultaneous-interpreter.up.railway.app/
+- 在线演示: https://ai-simultaneous-interpreter.vercel.app/
 - Demo 视频: 提交前将公开视频链接放到这里
 - Demo 视频脚本: [docs/demo-video-script.md](docs/demo-video-script.md)
 - 部署说明: [docs/deployment.md](docs/deployment.md)
@@ -83,9 +83,9 @@ http://localhost:3000/health
 
 ## 部署方案
 
-本项目的完整后端需要长期运行 WebSocket 音频流服务，推荐部署到 Railway。
+本项目已部署到 Vercel：https://ai-simultaneous-interpreter.vercel.app/
 
-Vercel 可用于部署静态前端，并通过环境变量 `LINGUA_BACKEND_ORIGIN` 指向 Railway 后端地址。详细步骤见 [docs/deployment.md](docs/deployment.md)。
+详细部署步骤见 [docs/deployment.md](docs/deployment.md)。
 
 ## 项目结构
 

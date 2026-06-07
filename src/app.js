@@ -22,6 +22,13 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+app.get('/api/config.js', (req, res) => {
+  const backendOrigin = process.env.LINGUA_BACKEND_ORIGIN || '';
+
+  res.type('application/javascript');
+  res.send(`window.LINGUA_BACKEND_ORIGIN = ${JSON.stringify(backendOrigin)};`);
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',

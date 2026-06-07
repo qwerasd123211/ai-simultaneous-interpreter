@@ -50,7 +50,19 @@ document.addEventListener('DOMContentLoaded', () => {
   createFloatingSubtitle();
 });
 
+function getConfiguredBackendOrigin() {
+  const origin = window.LINGUA_BACKEND_ORIGIN;
+  if (!origin || typeof origin !== 'string') return '';
+
+  return origin.trim().replace(/\/$/, '');
+}
+
 function getServerOrigin() {
+  const configuredOrigin = getConfiguredBackendOrigin();
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
   if (window.location.protocol === 'file:') {
     return 'http://localhost:3000';
   }
@@ -59,26 +71,24 @@ function getServerOrigin() {
 }
 
 function getWebSocketUrl() {
-  if (window.location.protocol === 'file:') {
-    return 'ws://localhost:3000';
-  }
+  const serverOrigin = getServerOrigin();
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}`;
+  return serverOrigin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
 }
 
 async function redirectFileProtocolToServer() {
   if (window.location.protocol !== 'file:') return;
 
-  updateStatus('请通过 http://localhost:3000 使用实时翻译，正在尝试切换...');
+  const serverOrigin = getServerOrigin();
+  updateStatus(`请通过 ${serverOrigin} 使用实时翻译，正在尝试切换...`);
 
   try {
-    await fetch('http://localhost:3000/health', { cache: 'no-store' });
+    await fetch(`${serverOrigin}/health`, { cache: 'no-store' });
     setTimeout(() => {
-      window.location.replace('http://localhost:3000/');
+      window.location.replace(`${serverOrigin}/`);
     }, 600);
   } catch (error) {
-    showError('当前是本地文件模式，无法连接后端。请先运行 npm start，然后打开 http://localhost:3000');
+    showError(`当前是本地文件模式，无法连接后端。请先运行 npm start，然后打开 ${serverOrigin}`);
   }
 }
 

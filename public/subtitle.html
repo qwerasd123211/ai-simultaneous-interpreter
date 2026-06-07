@@ -206,14 +206,13 @@
       keepWindowOnTopInterval = setInterval(() => {
         if (!isPinned) return;
         try {
-          window.focus();
-          if (window.moveTo) {
-            const x = window.screenX || window.screenLeft;
-            const y = window.screenY || window.screenTop;
-            window.moveTo(x, y);
-          }
+          // 使用 moveTo + resizeBy 刷新窗口位置，触发浏览器置顶行为
+          const x = window.screenX || window.screenLeft;
+          const y = window.screenY || window.screenTop;
+          window.moveTo(x + 1, y);
+          window.moveTo(x, y);
         } catch (e) {}
-      }, 500);
+      }, 2000);
     }
 
     function stopPinLoop() {
@@ -330,20 +329,36 @@
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'subtitle') {
         const isFinal = event.data.isFinal !== false;
+        const original = event.data.original || '';
+        const translated = event.data.translated || '';
+        const time = event.data.time || new Date().toLocaleTimeString();
 
-        if (!isFinal && activeSubtitleElement) {
-          // 流式更新：更新现有字幕
-          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
-        } else if (isFinal && activeSubtitleElement) {
-          // 最终结果：更新现有字幕并移除流式标记
-          updateSubtitle(activeSubtitleElement, event.data.original, event.data.translated, event.data.time);
-          activeSubtitleElement.classList.remove('streaming');
-          activeSubtitleElement.dataset.isStreaming = 'false';
-          activeSubtitleElement = null;
+        if (isFinal) {
+          // 最终结果
+          if (activeSubtitleElement) {
+            // 更新并最终化
+            updateSubtitle(activeSubtitleElement, original, translated, time);
+            activeSubtitleElement.classList.remove('streaming');
+            activeSubtitleElement.dataset.isStreaming = 'false';
+            activeSubtitleElement = null;
+          } else {
+            // 新字幕
+            addSubtitle(original, translated, time, false);
+          }
         } else {
-          // 新字幕（最终结果，没有之前的流式字幕）
-          addSubtitle(event.data.original, event.data.translated, event.data.time, false);
-          activeSubtitleElement = null;
+          // 中间结果
+          if (activeSubtitleElement) {
+            // 更新现有流式字幕
+            updateSubtitle(activeSubtitleElement, original, translated, time);
+          } else {
+            // 创建新的流式字幕
+            activeSubtitleElement = addSubtitle(original, translated, time, true);
+          }
+        }
+
+        // 有新字幕时，尝试将窗口带到前台
+        if (isPinned) {
+          try { window.focus(); } catch (e) {}
         }
       }
       if (event.data && event.data.type === 'init') {

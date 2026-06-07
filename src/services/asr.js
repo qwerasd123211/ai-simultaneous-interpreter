@@ -1,11 +1,8 @@
 /**
  * 语音识别服务 (ASR)
- * 支持讯飞语音识别 API
+ * 支持讯飞语音流式识别 API（真正的实时流式）
  */
 
-const fetch = require('node-fetch');
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 
@@ -13,38 +10,6 @@ const WebSocket = require('ws');
 const XFYUN_APPID = process.env.XFYUN_APPID;
 const XFYUN_API_KEY = process.env.XFYUN_API_KEY;
 const XFYUN_API_SECRET = process.env.XFYUN_API_SECRET;
-
-/**
- * 语音识别
- * @param {string|Buffer} input - 音频文件路径或 Buffer 数据
- * @returns {Object} 识别结果
- */
-async function transcribe(input) {
-  let audioData;
-  let fileName = 'audio-chunk';
-
-  if (Buffer.isBuffer(input)) {
-    // 直接使用 Buffer 数据
-    audioData = input;
-  } else if (typeof input === 'string') {
-    // 读取文件
-    if (!fs.existsSync(input)) {
-      throw new Error('音频文件不存在');
-    }
-    audioData = fs.readFileSync(input);
-    fileName = path.basename(input);
-  } else {
-    throw new Error('无效的输入类型');
-  }
-
-  // 根据配置选择识别服务
-  if (XFYUN_APPID && XFYUN_API_KEY && XFYUN_API_SECRET) {
-    return await transcribeWithXfyun(audioData, fileName);
-  } else {
-    // 使用模拟数据（开发测试用）
-    return await transcribeMock(audioData, fileName);
-  }
-}
 
 /**
  * 生成讯飞签名 URL
@@ -71,21 +36,41 @@ function createXfyunUrl() {
   return `${url}?${params.toString()}`;
 }
 
+// ============================================
+// 流式识别会话管理
+// ============================================
+
+const streamSessions = new Map();
+
 /**
- * 使用讯飞语音 API 识别
+ * 创建流式识别会话
+ * @param {string} sessionId - 会话标识
+ * @param {Function} onResult - 收到识别结果回调 (text, isFinal)
+ * @param {Function} onError - 错误回调
+ * @param {Function} onEnd - 识别结束回调
+ * @returns {Object} 会话对象
  */
-async function transcribeWithXfyun(audioData, fileName) {
-  console.log('[ASR] 使用讯飞语音识别:', fileName);
+function createStreamSession(sessionId, onResult, onError, onEnd) {
+  // 如果已有会话，先关闭
+  if (streamSessions.has(sessionId)) {
+    closeStreamSession(sessionId);
+  }
 
-  return new Promise((resolve, reject) => {
+  try {
     const url = createXfyunUrl();
-    const ws = new WebSocket(url);
+    const xfyunWs = new WebSocket(url);
 
-    let result = '';
-    let segments = [];
+    const session = {
+      xfyunWs,
+      isOpen: false,
+      result: '',
+      lastResult: '',
+      silenceTimer: null,
+      isEnding: false
+    };
 
-    ws.on('open', () => {
-      console.log('[ASR] WebSocket 连接成功');
+    xfyunWs.on('open', () => {
+      console.log(`[ASR] 讯飞连接已建立, session: ${sessionId}`);
 
       // 发送开始帧
       const startFrame = {
@@ -94,8 +79,8 @@ async function transcribeWithXfyun(audioData, fileName) {
           language: 'en_us',
           domain: 'iat',
           accent: 'mandarin',
-          vad_eos: 3000,
-          dwa: 'wpgs'
+          vad_eos: 5000,
+          dwa: 'wpgs' // 动态拼接模式，支持实时返回
         },
         data: {
           status: 0,
@@ -104,156 +89,249 @@ async function transcribeWithXfyun(audioData, fileName) {
         }
       };
 
-      ws.send(JSON.stringify(startFrame));
-
-      // 分片发送音频数据
-      const chunkSize = 1280; // 每次发送 1280 字节
-      let offset = 0;
-
-      const sendChunk = () => {
-        if (offset < audioData.length) {
-          const chunk = audioData.slice(offset, offset + chunkSize);
-          offset += chunkSize;
-
-          const frame = {
-            data: {
-              status: 1,
-              audio: chunk.toString('base64')
-            }
-          };
-
-          ws.send(JSON.stringify(frame));
-          setTimeout(sendChunk, 40); // 模拟实时发送
-        } else {
-          // 发送结束帧
-          const endFrame = {
-            data: {
-              status: 2
-            }
-          };
-          ws.send(JSON.stringify(endFrame));
-        }
-      };
-
-      sendChunk();
+      xfyunWs.send(JSON.stringify(startFrame));
+      session.isOpen = true;
+      console.log(`[ASR] 会话 ${sessionId} 已就绪`);
     });
 
-    ws.on('message', (data) => {
+    xfyunWs.on('message', (rawData) => {
       try {
-        const response = JSON.parse(data);
+        const response = JSON.parse(rawData);
 
         if (response.code !== 0) {
-          reject(new Error(`讯飞 API 错误: ${response.message}`));
+          console.error(`[ASR] 讯飞错误: ${response.message}`);
+          onError(new Error(`讯飞 API 错误: ${response.message}`));
           return;
         }
 
         if (response.data && response.data.result) {
-          const resultData = response.data.result;
+          const rd = response.data.result;
 
-          // 提取识别结果
-          if (resultData.ws) {
+          // 提取识别文本
+          if (rd.ws) {
             let text = '';
-            resultData.ws.forEach(ws => {
+            rd.ws.forEach(ws => {
               ws.cw.forEach(cw => {
                 text += cw.w;
               });
             });
 
             if (text) {
-              result += text;
-              segments.push({
-                start: segments.length * 2,
-                end: (segments.length + 1) * 2,
-                text: text
-              });
+              // pgs: rpl=替换模式(中间结果), apl=追加模式(最终结果)
+              const isFinal = rd.pgs === 'apl' || response.data.status === 2;
+
+              if (rd.pgs === 'rpl') {
+                // 中间结果：替换之前的文本
+                session.lastResult = text;
+                onResult(text, false);
+              } else if (rd.pgs === 'apl') {
+                // 追加结果：在之前的结果上追加
+                session.result += text;
+                session.lastResult = session.result;
+                onResult(session.result, isFinal);
+              }
             }
           }
-
-          // 检查是否识别完成
-          if (resultData.pgs === 'rpl') {
-            // 替换模式，更新结果
-            result = '';
-            segments = [];
-          }
         }
 
-        // 检查是否结束
+        // 识别结束
         if (response.data && response.data.status === 2) {
-          ws.close();
-          resolve({
-            text: result || '未能识别语音内容',
-            segments: segments.length > 0 ? segments : [
-              { start: 0, end: 2, text: result || '未能识别语音内容' }
-            ]
-          });
+          console.log(`[ASR] 讯飞识别结束, session: ${sessionId}`);
+          if (session.lastResult) {
+            onResult(session.lastResult, true);
+          }
+          onEnd();
+          // 不立即关闭，等待后续音频可能重新开始
         }
       } catch (e) {
-        console.error('[ASR] 解析响应错误:', e);
+        console.error('[ASR] 解析讯飞响应错误:', e);
       }
     });
 
-    ws.on('error', (error) => {
-      console.error('[ASR] WebSocket 错误:', error);
-      reject(error);
+    xfyunWs.on('error', (error) => {
+      console.error(`[ASR] WebSocket错误, session: ${sessionId}:`, error.message);
+      onError(error);
     });
 
-    ws.on('close', () => {
-      console.log('[ASR] WebSocket 连接关闭');
+    xfyunWs.on('close', () => {
+      console.log(`[ASR] 讯飞连接关闭, session: ${sessionId}`);
+      session.isOpen = false;
+      streamSessions.delete(sessionId);
     });
 
-    // 超时处理
-    setTimeout(() => {
-      ws.close();
-      if (result) {
-        resolve({
-          text: result,
-          segments: segments
-        });
-      } else {
-        reject(new Error('语音识别超时'));
-      }
-    }, 30000);
-  });
+    const sessionObj = { ...session };
+    streamSessions.set(sessionId, sessionObj);
+    return sessionObj;
+  } catch (error) {
+    console.error(`[ASR] 创建会话失败:`, error.message);
+    onError(error);
+    return null;
+  }
 }
 
 /**
- * 模拟识别（开发测试用）
+ * 发送音频数据块到流式会话
+ * @param {string} sessionId - 会话标识
+ * @param {Buffer} audioChunk - PCM 16bit 16kHz 音频数据
+ * @param {boolean} isLast - 是否为最后一帧
  */
-async function transcribeMock(audioData, fileName) {
-  console.log('[ASR] 使用模拟识别:', fileName);
+function sendAudioChunk(sessionId, audioChunk, isLast = false) {
+  const session = streamSessions.get(sessionId);
+  if (!session) {
+    console.warn(`[ASR] 会话 ${sessionId} 不存在，无法发送音频`);
+    return false;
+  }
 
-  // 模拟处理时间
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  if (!session.isOpen) {
+    console.warn(`[ASR] 会话 ${sessionId} 未就绪，缓存音频`);
+    return false;
+  }
 
-  return {
-    text: 'Hello, welcome to the AI simultaneous interpreter. This tool will help you understand English content in real-time by providing Chinese subtitles.',
-    segments: [
-      { start: 0, end: 2.5, text: 'Hello, welcome to' },
-      { start: 2.5, end: 5.0, text: 'the AI simultaneous interpreter.' },
-      { start: 5.0, end: 8.0, text: 'This tool will help you understand' },
-      { start: 8.0, end: 10.5, text: 'English content in real-time' },
-      { start: 10.5, end: 13.0, text: 'by providing Chinese subtitles.' }
-    ]
+  try {
+    const frame = {
+      data: {
+        status: isLast ? 2 : 1,
+        format: 'audio/L16;rate=16000',
+        encoding: 'raw',
+        audio: audioChunk.toString('base64')
+      }
+    };
+
+    session.xfyunWs.send(JSON.stringify(frame));
+
+    if (isLast) {
+      console.log(`[ASR] 已发送结束帧, session: ${sessionId}`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`[ASR] 发送音频失败:`, error.message);
+    return false;
+  }
+}
+
+/**
+ * 关闭流式识别会话
+ */
+function closeStreamSession(sessionId) {
+  const session = streamSessions.get(sessionId);
+  if (session) {
+    try {
+      // 发送结束帧（如果还未发送）
+      if (session.isOpen && !session.isEnding) {
+        session.isEnding = true;
+        const endFrame = {
+          data: {
+            status: 2
+          }
+        };
+        session.xfyunWs.send(JSON.stringify(endFrame));
+      }
+      // 延迟关闭，等待讯飞返回最终结果
+      setTimeout(() => {
+        try {
+          session.xfyunWs.close();
+        } catch (e) { /* ignore */ }
+        streamSessions.delete(sessionId);
+      }, 3000);
+    } catch (e) {
+      try { session.xfyunWs.close(); } catch (e2) { /* ignore */ }
+      streamSessions.delete(sessionId);
+    }
+    console.log(`[ASR] 会话 ${sessionId} 已关闭`);
+  }
+}
+
+/**
+ * 重置流式会话（用于新一段语音）
+ */
+function resetStreamSession(sessionId) {
+  const session = streamSessions.get(sessionId);
+  if (session) {
+    session.result = '';
+    session.lastResult = '';
+  }
+}
+
+// ============================================
+// 非流式识别（兼容旧的批量模式）
+// ============================================
+
+async function transcribe(input) {
+  // 不再支持非流式识别，全部走流式
+  throw new Error('请使用流式识别接口 - createStreamSession / sendAudioChunk');
+}
+
+/**
+ * 模拟识别（开发测试用流式版本）
+ */
+let mockIndex = 0;
+const mockPhrases = [
+  { text: 'Hello, welcome to the AI simultaneous interpreter.', segments: [] },
+  { text: 'This tool will help you understand English content in real-time.', segments: [] },
+  { text: 'It provides Chinese subtitles for videos, podcasts, and live streams.', segments: [] },
+  { text: 'The recognition accuracy is continuously improving with AI technology.', segments: [] },
+  { text: 'You can use it for learning English, watching movies, or attending online meetings.', segments: [] }
+];
+
+/**
+ * 创建模拟流式识别会话
+ */
+function createMockSession(sessionId, onResult, onError, onEnd) {
+  console.log(`[ASR] 创建模拟会话: ${sessionId}`);
+
+  let timeoutId = null;
+  let isRunning = true;
+
+  const session = {
+    isOpen: true,
+    mockTimeout: null,
+    mockIndex: 0,
+    close: () => {
+      isRunning = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   };
-}
 
-/**
- * 实时语音识别（流式）
- * @param {WebSocket} ws - WebSocket 连接
- * @param {Buffer} audioChunk - 音频数据块
- */
-async function transcribeStream(ws, audioChunk) {
-  // 实时流式识别
-  // 用于实时音频流处理
-  console.log('[ASR] 收到音频数据块:', audioChunk.length, '字节');
+  // 模拟流式返回结果
+  const phrase = mockPhrases[mockIndex % mockPhrases.length];
+  mockIndex++;
 
-  // TODO: 实现实时流式识别
-  // 1. 将音频数据块发送到识别 API
-  // 2. 接收部分识别结果
-  // 3. 通过 WebSocket 返回结果
+  const words = phrase.text.split(' ');
+  let accumulated = '';
+  let wordIndex = 0;
+
+  function sendNextWord() {
+    if (!isRunning) return;
+
+    if (wordIndex < words.length) {
+      accumulated += (accumulated ? ' ' : '') + words[wordIndex];
+      wordIndex++;
+
+      // 作为中间结果发送
+      onResult(accumulated, false);
+
+      // 随机间隔 200-500ms 模拟流式返回
+      const delay = 200 + Math.random() * 300;
+      timeoutId = setTimeout(sendNextWord, delay);
+    } else {
+      // 发送最终结果
+      onResult(accumulated, true);
+      onEnd();
+    }
+  }
+
+  // 立即开始发送
+  sendNextWord();
+
+  return session;
 }
 
 module.exports = {
   transcribe,
-  transcribeStream
+  createStreamSession,
+  createMockSession,
+  sendAudioChunk,
+  closeStreamSession,
+  resetStreamSession
 };

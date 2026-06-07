@@ -1,21 +1,23 @@
 /**
  * LINGUA // AI 同声传译助手
- * 前端交互逻辑 - 浮动字幕版本
+ * 前端交互逻辑 - 流式字幕版本
  */
 
 // 全局状态
 let isTranslating = false;
 let isPaused = false;
 let ws = null;
-let mediaRecorder = null;
 let audioStream = null;
 let subtitles = [];
 let history = [];
 let subtitleWindow = null;
 let keepWindowOnTopInterval = null;
-let pipAnimationId = null;
-let currentSubtitleOriginal = '';
-let currentSubtitleTranslated = '';
+let subtitleId = 0;
+
+// 音频捕获引用
+let audioContextRef = null;
+let processorRef = null;
+let sourceRef = null;
 
 // DOM 元素
 const elements = {
@@ -326,113 +328,11 @@ async function openSubtitleWindow() {
     // 10 秒后停止检查
     setTimeout(() => clearInterval(checkLoaded), 10000);
 
-    // 置顶字幕窗口：定时重新聚焦（用户在与主页面交互时保持字幕窗口在前）
-    keepWindowOnTopInterval = setInterval(() => {
-      if (subtitleWindow && !subtitleWindow.closed && !document.hidden) {
-        try {
-          // 不要强制聚焦，只尝试一次，避免打扰用户
-          // 这里仅做保活，不强制置顶（浏览器安全策略限制）
-        } catch (e) {}
-      }
-    }, 3000);
-
     console.log('字幕窗口已打开');
   } catch (error) {
     console.error('打开字幕窗口错误:', error);
     showError('打开字幕窗口失败: ' + error.message);
   }
-}
-
-// 绘制字幕到 canvas（供画中画循环调用）
-function drawSubtitleCanvas(original, translated) {
-  const canvas = document.getElementById('subtitleCanvas');
-  if (!canvas) return;
-
-  const ctx = canvas.getContext('2d');
-
-  // 清空 canvas
-  ctx.fillStyle = 'rgba(10, 10, 15, 0.95)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 绘制边框
-  ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
-
-  // 绘制标题
-  ctx.fillStyle = '#00d4ff';
-  ctx.font = '16px "JetBrains Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('LINGUA 字幕', canvas.width / 2, 35);
-
-  // 绘制分隔线
-  ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
-  ctx.beginPath();
-  ctx.moveTo(20, 50);
-  ctx.lineTo(canvas.width - 20, 50);
-  ctx.stroke();
-
-  // 绘制原文
-  if (original) {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = '14px "Noto Sans SC", sans-serif';
-    ctx.textAlign = 'left';
-
-    // 自动换行
-    const words = original.split(' ');
-    let line = '';
-    let y = 80;
-
-    for (const word of words) {
-      const testLine = line + word + ' ';
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > canvas.width - 40 && line !== '') {
-        ctx.fillText(line, 20, y);
-        line = word + ' ';
-        y += 20;
-      } else {
-        line = testLine;
-      }
-    }
-    ctx.fillText(line, 20, y);
-  }
-
-  // 绘制译文
-  if (translated) {
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Noto Sans SC", sans-serif';
-    ctx.textAlign = 'left';
-
-    // 自动换行
-    const words = translated.split('');
-    let line = '';
-    let y = 160;
-
-    for (const char of words) {
-      const testLine = line + char;
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > canvas.width - 40 && line !== '') {
-        ctx.fillText(line, 20, y);
-        line = char;
-        y += 25;
-      } else {
-        line = testLine;
-      }
-    }
-    ctx.fillText(line, 20, y);
-  }
-
-  // 绘制时间
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-  ctx.font = '12px "JetBrains Mono", monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText(new Date().toLocaleTimeString(), canvas.width - 20, canvas.height - 15);
-}
-
-// 更新字幕（更新状态变量，由绘制循环读取）
-function updateSubtitleCanvas(original, translated) {
-  currentSubtitleOriginal = original || '';
-  currentSubtitleTranslated = translated || '';
 }
 
 function pauseTranslation() {
@@ -492,11 +392,6 @@ function stopTranslation() {
   isTranslating = false;
   isPaused = false;
 
-  // 停止媒体录制（旧 MediaRecorder 方式，兼容清理）
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-  }
-
   // 停止 AudioContext 音频捕获
   if (processorRef) {
     processorRef.disconnect();
@@ -510,7 +405,6 @@ function stopTranslation() {
     audioContextRef.close().catch(() => {});
     audioContextRef = null;
   }
-  pcmBufferQueue = [];
 
   // 停止音频流
   if (audioStream) {
@@ -550,7 +444,7 @@ function stopTranslation() {
 }
 
 // ============================================
-// WebSocket 连接
+// WebSocket 连接（流式处理）
 // ============================================
 
 function connectWebSocket() {
@@ -572,10 +466,16 @@ function connectWebSocket() {
 
     switch (data.type) {
       case 'transcribeResult':
-        handleTranscribeResult(data);
+        // 实时更新原文（流式）
+        updateStreamingOriginal(data.text, data.isFinal);
         break;
       case 'translateResult':
-        handleTranslateResult(data);
+        // 实时更新译文（流式）
+        updateStreamingTranslation(data.original, data.translated, data.isFinal);
+        break;
+      case 'sentenceEnd':
+        // 一句话识别完成
+        onSentenceEnd(data.text);
         break;
       case 'error':
         showError(data.message);
@@ -583,13 +483,136 @@ function connectWebSocket() {
     }
   };
 
-  // 流式显示状态
-  let currentSubtitleElement = null;
-  let currentSubtitleData = null;
+  // 流式状态管理
+  let streamState = {
+    activeOriginal: '',
+    activeTranslated: '',
+    hasTranslation: false,
+    timer: null
+  };
+
+  /**
+   * 更新流式原文显示
+   */
+  function updateStreamingOriginal(text, isFinal) {
+    streamState.activeOriginal = text;
+
+    if (!streamState.hasTranslation) {
+      // 翻译还没到，先显示原文
+      updateSubtitleDisplay(text, '...翻译中...');
+    }
+
+    if (isFinal) {
+      // 最终识别结果，准备提交
+      if (streamState.timer) clearTimeout(streamState.timer);
+      streamState.timer = setTimeout(() => {
+        // 如果翻译还没来，强制显示原文
+        if (!streamState.hasTranslation) {
+          commitSubtitle(streamState.activeOriginal, streamState.activeTranslated || '(翻译中...)');
+        }
+      }, 2000);
+    }
+  }
+
+  /**
+   * 更新流式译文显示
+   */
+  function updateStreamingTranslation(original, translated, isFinal) {
+    streamState.activeTranslated = translated;
+    streamState.hasTranslation = true;
+
+    // 更新显示
+    updateSubtitleDisplay(original, translated);
+
+    if (isFinal) {
+      // 最终翻译结果，提交到历史
+      commitSubtitle(original, translated);
+      streamState.hasTranslation = false;
+    }
+  }
+
+  /**
+   * 提交最终字幕（添加到历史 + 发送到弹窗）
+   */
+  function commitSubtitle(original, translated) {
+    if (!original || !translated) return;
+
+    // 添加到历史
+    addToHistory(original, translated);
+
+    // 页面浮动字幕
+    addFloatingSubtitle(original, translated);
+
+    // 独立字幕弹窗
+    if (subtitleWindow && !subtitleWindow.closed) {
+      try {
+        subtitleWindow.postMessage({
+          type: 'subtitle',
+          original: original,
+          translated: translated,
+          isFinal: true,
+          time: new Date().toLocaleTimeString()
+        }, '*');
+      } catch (e) {
+        console.error('发送字幕到窗口失败:', e);
+      }
+    }
+  }
+
+  /**
+   * 更新当前字幕显示（流式）
+   */
+  function updateSubtitleDisplay(original, translated) {
+    // 更新页面浮动字幕
+    const subtitleList = document.getElementById('floatingSubtitleList');
+    if (subtitleList) {
+      let lastItem = subtitleList.lastElementChild;
+      if (lastItem && lastItem.dataset.isStreaming === 'true') {
+        // 更新现有的流式字幕
+        const origEl = lastItem.querySelector('.floating-subtitle-original');
+        const transEl = lastItem.querySelector('.floating-subtitle-translated');
+        if (origEl) origEl.textContent = original;
+        if (transEl) transEl.textContent = translated;
+      } else {
+        // 创建新的流式字幕
+        const item = document.createElement('div');
+        item.className = 'floating-subtitle-item';
+        item.dataset.isStreaming = 'true';
+        item.innerHTML = `
+          <div class="floating-subtitle-original">${escapeHtml(original)}</div>
+          <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
+          <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
+        `;
+        subtitleList.appendChild(item);
+      }
+    }
+
+    // 更新弹窗字幕（流式）
+    if (subtitleWindow && !subtitleWindow.closed) {
+      try {
+        subtitleWindow.postMessage({
+          type: 'subtitle',
+          original: original,
+          translated: translated,
+          isFinal: false,
+          time: new Date().toLocaleTimeString()
+        }, '*');
+      } catch (e) {
+        console.error('发送流式字幕到窗口失败:', e);
+      }
+    }
+  }
+
+  /**
+   * 一句话识别完成
+   */
+  function onSentenceEnd(text) {
+    console.log('一句话识别完成:', text);
+  }
 
   ws.onerror = (error) => {
     console.error('WebSocket 错误:', error);
-    showError('连接错误');
+    showError('连接错误，请重试');
     stopTranslation();
   };
 
@@ -604,10 +627,6 @@ function connectWebSocket() {
 // ============================================
 // 音频捕获（使用 AudioContext 获取原始 PCM）
 // ============================================
-
-let audioContextRef = null;
-let processorRef = null;
-let sourceRef = null;
 
 // 流式识别状态
 let streamAsrWs = null;  // 与后端的流式识别 WebSocket
@@ -711,111 +730,6 @@ function startAudioCapture() {
     console.error('音频捕获错误:', error);
     showError('音频捕获失败: ' + error.message);
   }
-}
-
-// ============================================
-// 结果处理
-// ============================================
-
-// 当前正在显示的字幕元素（用于流式更新）
-let activeSubtitleItem = null;
-
-function handleTranscribeResult(data) {
-  console.log('识别结果:', data.text, data.isFinal ? '(最终)' : '(中间)');
-}
-
-function handleTranslateResult(data) {
-  console.log('翻译结果:', data.translated, data.isFinal ? '(最终)' : '(中间)');
-
-  const isFinal = data.isFinal !== false;
-
-  // 如果是中间结果，更新当前字幕；如果是最终结果，创建新字幕
-  if (!isFinal && activeSubtitleItem) {
-    // 更新现有字幕（流式更新）
-    updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
-  } else {
-    // 最终结果：添加到历史并创建新字幕
-    addToHistory(data.original, data.translated);
-
-    // 页面浮动字幕
-    if (isFinal) {
-      addFloatingSubtitle(data.original, data.translated);
-    } else {
-      activeSubtitleItem = addOrUpdateFloatingSubtitle(data.original, data.translated);
-    }
-
-    // 独立字幕弹窗
-    if (subtitleWindow && !subtitleWindow.closed) {
-      try {
-        subtitleWindow.postMessage({
-          type: 'subtitle',
-          original: data.original,
-          translated: data.translated,
-          isFinal: isFinal,
-          time: new Date().toLocaleTimeString()
-        }, '*');
-      } catch (e) {
-        console.error('发送字幕到窗口失败:', e);
-      }
-    }
-
-    // 如果是最终结果，清空活跃字幕
-    if (isFinal) {
-      activeSubtitleItem = null;
-    }
-  }
-}
-
-// 更新字幕显示（流式）
-function updateSubtitleDisplay(element, original, translated) {
-  if (!element) return;
-
-  const originalEl = element.querySelector('.floating-subtitle-original');
-  const translatedEl = element.querySelector('.floating-subtitle-translated');
-
-  if (originalEl) originalEl.textContent = original;
-  if (translatedEl) translatedEl.textContent = translated;
-}
-
-// 添加或更新浮动字幕（返回元素引用）
-function addOrUpdateFloatingSubtitle(original, translated) {
-  const subtitleList = document.getElementById('floatingSubtitleList');
-  if (!subtitleList) return null;
-
-  // 查找最后一个字幕元素
-  const lastItem = subtitleList.lastElementChild;
-
-  if (lastItem && lastItem.dataset.isStreaming === 'true') {
-    // 更新最后一个字幕
-    updateSubtitleDisplay(lastItem, original, translated);
-    return lastItem;
-  }
-
-  // 创建新字幕元素
-  const subtitleElement = document.createElement('div');
-  subtitleElement.className = 'floating-subtitle-item';
-  subtitleElement.dataset.isStreaming = 'true';
-  subtitleElement.innerHTML = `
-    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
-    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
-    <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
-  `;
-
-  subtitleList.appendChild(subtitleElement);
-
-  // 滚动到底部
-  const floatingDiv = document.getElementById('floatingSubtitle');
-  if (floatingDiv) {
-    floatingDiv.scrollTop = floatingDiv.scrollHeight;
-  }
-
-  // 限制显示数量
-  const items = subtitleList.children;
-  if (items.length > 10) {
-    subtitleList.removeChild(items[0]);
-  }
-
-  return subtitleElement;
 }
 
 // ============================================

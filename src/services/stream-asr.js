@@ -56,7 +56,7 @@ class StreamAsrService {
           console.log('[StreamASR] 讯飞 WebSocket 连接已建立');
           this.isConnected = true;
           this.isConnecting = false;
-          this.status = 1;
+          this.status = 0;
 
           // 发送所有待发送的音频
           if (this.pendingAudio.length > 0) {
@@ -129,6 +129,23 @@ class StreamAsrService {
     }
   }
 
+  finish() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.status = 2;
+      return;
+    }
+
+    this.status = 2;
+    this.ws.send(JSON.stringify({
+      data: {
+        status: 2,
+        format: 'audio/L16;rate=16000',
+        encoding: 'raw',
+        audio: ''
+      }
+    }));
+  }
+
   /**
    * 内部发送音频
    */
@@ -144,27 +161,30 @@ class StreamAsrService {
 
       const message = {};
 
+      const isFirstFrame = this.isFirstFrame;
+
       // 只在第一帧发送 common 和 business
-      if (this.isFirstFrame) {
+      if (isFirstFrame) {
         message.common = { app_id: XFYUN_APPID };
         message.business = {
           language: 'en_us',
           domain: 'iat',
           accent: 'mandarin',
-          vad_eos: 5000,  // VAD 静音检测 5 秒
+          vad_eos: 800,  // 短静音切分，减少实时字幕等待时间
           dwa: 'wpgs'
         };
         this.isFirstFrame = false;
       }
 
       message.data = {
-        status: frameIsLast ? 2 : (this.status === 0 ? 0 : 1),
+        status: frameIsLast ? 2 : (isFirstFrame ? 0 : 1),
         format: 'audio/L16;rate=16000',
         encoding: 'raw',
         audio: frame.toString('base64')
       };
 
       this.ws.send(JSON.stringify(message));
+      this.status = frameIsLast ? 2 : 1;
     }
   }
 

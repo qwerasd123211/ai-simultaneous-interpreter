@@ -12,6 +12,9 @@ let audioStream = null;
 let subtitles = [];
 let history = [];
 let subtitleWindow = null;
+let subtitleWindowMode = 'popup';
+let pipSubtitleList = null;
+let pipSubtitleRecords = [];
 let keepWindowOnTopInterval = null;
 let pipAnimationId = null;
 let currentSubtitleOriginal = '';
@@ -231,6 +234,8 @@ function clearFloatingSubtitle() {
 
 async function startTranslation() {
   try {
+    await openSubtitleWindow();
+
     // 请求屏幕共享权限
     updateStatus('正在请求屏幕共享权限...');
 
@@ -249,9 +254,6 @@ async function startTranslation() {
     }
 
     updateStatus('屏幕共享已开始，正在连接服务器...');
-
-    // 打开独立字幕窗口
-    openSubtitleWindow();
 
     // 显示页面浮动字幕层（备用）
     showFloatingSubtitle();
@@ -274,6 +276,7 @@ async function startTranslation() {
 
   } catch (error) {
     console.error('屏幕共享错误:', error);
+    closeSubtitleWindow();
     if (error.name === 'NotAllowedError') {
       showError('用户取消了屏幕共享');
     } else {
@@ -282,19 +285,177 @@ async function startTranslation() {
   }
 }
 
-// 打开独立字幕窗口（弹窗模式）
-async function openSubtitleWindow() {
-  // 先关闭已有窗口
+function closeSubtitleWindow() {
   if (subtitleWindow && !subtitleWindow.closed) {
     subtitleWindow.close();
-    subtitleWindow = null;
   }
+  subtitleWindow = null;
+  subtitleWindowMode = 'popup';
+  pipSubtitleList = null;
+  pipSubtitleRecords = [];
+
   if (keepWindowOnTopInterval) {
     clearInterval(keepWindowOnTopInterval);
     keepWindowOnTopInterval = null;
   }
+}
+
+function buildPipSubtitleWindow(pipWindow) {
+  const doc = pipWindow.document;
+  doc.title = 'LINGUA 字幕';
+  doc.body.innerHTML = `
+    <div class="subtitle-container">
+      <div class="subtitle-header">
+        <h3>LINGUA 字幕</h3>
+        <div class="subtitle-controls">
+          <button id="clearBtn">清空</button>
+          <button id="closeBtn">关闭</button>
+        </div>
+      </div>
+      <div class="subtitle-list" id="pipSubtitleList">
+        <div class="subtitle-placeholder">
+          <div class="placeholder-text">等待翻译开始...</div>
+          <div class="placeholder-hint">播放英文朗读后字幕会显示在这里</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const style = doc.createElement('style');
+  style.textContent = `
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      background: rgba(10, 10, 15, 0.96);
+      color: #fff;
+      font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .subtitle-container {
+      height: 100vh;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .subtitle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 12px;
+      background: rgba(0, 212, 255, 0.11);
+      border: 1px solid rgba(0, 212, 255, 0.34);
+      border-radius: 8px;
+      flex: 0 0 auto;
+    }
+    .subtitle-header h3 {
+      margin: 0;
+      color: #00d4ff;
+      font-size: 14px;
+      letter-spacing: 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .subtitle-controls { display: flex; gap: 8px; }
+    .subtitle-controls button {
+      padding: 6px 12px;
+      background: rgba(0, 212, 255, 0.1);
+      color: #00d4ff;
+      border: 1px solid rgba(0, 212, 255, 0.35);
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .subtitle-list {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .subtitle-item {
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border-left: 3px solid #00d4ff;
+      border-radius: 8px;
+    }
+    .subtitle-original {
+      margin-bottom: 6px;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 12px;
+      font-style: italic;
+      line-height: 1.4;
+    }
+    .subtitle-translated {
+      color: #fff;
+      font-size: 20px;
+      font-weight: 650;
+      line-height: 1.5;
+    }
+    .subtitle-time {
+      margin-top: 6px;
+      color: rgba(255, 255, 255, 0.34);
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .subtitle-placeholder {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: rgba(255, 255, 255, 0.45);
+      text-align: center;
+    }
+    .placeholder-text { font-size: 16px; color: rgba(255,255,255,0.72); }
+    .placeholder-hint { font-size: 12px; }
+  `;
+  doc.head.appendChild(style);
+
+  pipSubtitleList = doc.getElementById('pipSubtitleList');
+  doc.getElementById('clearBtn').addEventListener('click', clearPipSubtitles);
+  doc.getElementById('closeBtn').addEventListener('click', () => {
+    closeSubtitleWindow();
+  });
+
+  pipWindow.addEventListener('pagehide', () => {
+    if (subtitleWindow === pipWindow) {
+      subtitleWindow = null;
+      pipSubtitleList = null;
+      subtitleWindowMode = 'popup';
+    }
+  });
+}
+
+async function openPipSubtitleWindow() {
+  if (!('documentPictureInPicture' in window)) {
+    return false;
+  }
+
+  const pipWindow = await window.documentPictureInPicture.requestWindow({
+    width: 520,
+    height: 360
+  });
+
+  subtitleWindow = pipWindow;
+  subtitleWindowMode = 'pip';
+  pipSubtitleRecords = [];
+  buildPipSubtitleWindow(pipWindow);
+  return true;
+}
+
+// 打开独立字幕窗口（优先画中画置顶窗口，失败时使用普通弹窗）
+async function openSubtitleWindow() {
+  closeSubtitleWindow();
 
   try {
+    if (await openPipSubtitleWindow()) {
+      console.log('字幕画中画窗口已打开');
+      return;
+    }
+
     // 使用 window.open 打开字幕页面弹窗
     const subtitleUrl = `${window.location.origin}/subtitle.html`;
     subtitleWindow = window.open(
@@ -338,8 +499,18 @@ async function openSubtitleWindow() {
 
     console.log('字幕窗口已打开');
   } catch (error) {
-    console.error('打开字幕窗口错误:', error);
-    showError('打开字幕窗口失败: ' + error.message);
+    console.warn('打开画中画字幕窗口失败，回退到普通弹窗:', error);
+
+    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    subtitleWindow = window.open(
+      subtitleUrl,
+      'LINGUA_Subtitle',
+      'width=520,height=360,menubar=no,toolbar=no,location=no,status=no,resizable=yes'
+    );
+
+    if (!subtitleWindow) {
+      showError('字幕窗口被拦截，请允许弹窗后再试');
+    }
   }
 }
 
@@ -451,7 +622,7 @@ function pauseTranslation() {
 
 // 测试模式：不依赖语音识别，直接发送模拟字幕验证显示
 let isTestMode = false;
-function toggleTestMode() {
+async function toggleTestMode() {
   if (!isTestMode) {
     // 开启测试模式
     isTestMode = true;
@@ -460,7 +631,7 @@ function toggleTestMode() {
     updateStatus('测试模式已开启，正在发送模拟字幕...');
 
     // 打开字幕窗口
-    openSubtitleWindow();
+    await openSubtitleWindow();
     showFloatingSubtitle();
     clearFloatingSubtitle();
 
@@ -510,6 +681,10 @@ function stopTranslation() {
     audioContextRef.close().catch(() => {});
     audioContextRef = null;
   }
+  if (silenceGainRef) {
+    silenceGainRef.disconnect();
+    silenceGainRef = null;
+  }
   pcmBufferQueue = [];
 
   // 停止音频流
@@ -520,21 +695,14 @@ function stopTranslation() {
 
   // 关闭 WebSocket 连接
   if (ws) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'stop' }));
+    }
     ws.close();
     ws = null;
   }
 
-  // 关闭字幕窗口
-  if (subtitleWindow && !subtitleWindow.closed) {
-    subtitleWindow.close();
-    subtitleWindow = null;
-  }
-
-  // 清除置顶定时器
-  if (keepWindowOnTopInterval) {
-    clearInterval(keepWindowOnTopInterval);
-    keepWindowOnTopInterval = null;
-  }
+  closeSubtitleWindow();
 
   // 隐藏页面浮动字幕层
   hideFloatingSubtitle();
@@ -575,7 +743,7 @@ function connectWebSocket() {
         handleTranscribeResult(data);
         break;
       case 'translateResult':
-        handleTranslateResult(data);
+        renderTranslateResult(data);
         break;
       case 'error':
         showError(data.message);
@@ -608,6 +776,8 @@ function connectWebSocket() {
 let audioContextRef = null;
 let processorRef = null;
 let sourceRef = null;
+let silenceGainRef = null;
+let pcmBufferQueue = [];
 
 // 流式识别状态
 let streamAsrWs = null;  // 与后端的流式识别 WebSocket
@@ -703,7 +873,11 @@ function startAudioCapture() {
 
     // 连接音频图
     source.connect(processor);
-    processor.connect(audioContext.destination);
+    const silenceGain = audioContext.createGain();
+    silenceGain.gain.value = 0;
+    silenceGainRef = silenceGain;
+    processor.connect(silenceGain);
+    silenceGain.connect(audioContext.destination);
 
     updateStatus('正在实时翻译...');
     console.log('[音频] AudioContext PCM 捕获已启动，采样率:', audioContext.sampleRate, '发送间隔: 100ms');
@@ -724,46 +898,108 @@ function handleTranscribeResult(data) {
   console.log('识别结果:', data.text, data.isFinal ? '(最终)' : '(中间)');
 }
 
-function handleTranslateResult(data) {
-  console.log('翻译结果:', data.translated, data.isFinal ? '(最终)' : '(中间)');
+function sendSubtitleToWindow(original, translated, isFinal) {
+  if (!subtitleWindow || subtitleWindow.closed) return;
 
-  const isFinal = data.isFinal !== false;
+  if (subtitleWindowMode === 'pip') {
+    if (!pipSubtitleList) return;
+    renderPipSubtitle(original, translated, isFinal);
+    return;
+  }
 
-  // 如果是中间结果，更新当前字幕；如果是最终结果，创建新字幕
-  if (!isFinal && activeSubtitleItem) {
-    // 更新现有字幕（流式更新）
-    updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
+  try {
+    subtitleWindow.postMessage({
+      type: 'subtitle',
+      original,
+      translated,
+      isFinal,
+      time: new Date().toLocaleTimeString()
+    }, '*');
+  } catch (e) {
+    console.error('鍙戦€佸瓧骞曞埌绐楀彛澶辫触:', e);
+  }
+}
+
+function clearPipSubtitles() {
+  pipSubtitleRecords = [];
+  if (!pipSubtitleList) return;
+
+  pipSubtitleList.innerHTML = `
+    <div class="subtitle-placeholder">
+      <div class="placeholder-text">等待翻译开始...</div>
+      <div class="placeholder-hint">播放英文朗读后字幕会显示在这里</div>
+    </div>
+  `;
+}
+
+function renderPipSubtitle(original, translated, isFinal) {
+  if (!pipSubtitleList) return;
+
+  if (pipSubtitleRecords.length === 0) {
+    pipSubtitleList.innerHTML = '';
+  }
+
+  const time = new Date().toLocaleTimeString();
+  let lastItem = pipSubtitleList.lastElementChild;
+
+  if (lastItem && lastItem.dataset.isStreaming === 'true') {
+    lastItem.querySelector('.subtitle-original').textContent = original;
+    lastItem.querySelector('.subtitle-translated').textContent = translated;
+    lastItem.querySelector('.subtitle-time').textContent = time;
+
+    if (isFinal) {
+      lastItem.dataset.isStreaming = 'false';
+      pipSubtitleRecords.push({ original, translated, time });
+    }
   } else {
-    // 最终结果：添加到历史并创建新字幕
-    addToHistory(data.original, data.translated);
+    const item = subtitleWindow.document.createElement('div');
+    item.className = 'subtitle-item';
+    item.dataset.isStreaming = isFinal ? 'false' : 'true';
+    item.innerHTML = `
+      <div class="subtitle-original"></div>
+      <div class="subtitle-translated"></div>
+      <div class="subtitle-time"></div>
+    `;
+    item.querySelector('.subtitle-original').textContent = original;
+    item.querySelector('.subtitle-translated').textContent = translated;
+    item.querySelector('.subtitle-time').textContent = time;
+    pipSubtitleList.appendChild(item);
 
-    // 页面浮动字幕
     if (isFinal) {
-      addFloatingSubtitle(data.original, data.translated);
-    } else {
-      activeSubtitleItem = addOrUpdateFloatingSubtitle(data.original, data.translated);
-    }
-
-    // 独立字幕弹窗
-    if (subtitleWindow && !subtitleWindow.closed) {
-      try {
-        subtitleWindow.postMessage({
-          type: 'subtitle',
-          original: data.original,
-          translated: data.translated,
-          isFinal: isFinal,
-          time: new Date().toLocaleTimeString()
-        }, '*');
-      } catch (e) {
-        console.error('发送字幕到窗口失败:', e);
-      }
-    }
-
-    // 如果是最终结果，清空活跃字幕
-    if (isFinal) {
-      activeSubtitleItem = null;
+      pipSubtitleRecords.push({ original, translated, time });
     }
   }
+
+  while (pipSubtitleList.children.length > 20) {
+    pipSubtitleList.removeChild(pipSubtitleList.firstElementChild);
+  }
+
+  pipSubtitleList.scrollTop = pipSubtitleList.scrollHeight;
+}
+
+function renderTranslateResult(data) {
+  const isFinal = data.isFinal !== false;
+
+  if (!isFinal) {
+    activeSubtitleItem = addOrUpdateFloatingSubtitle(data.original, data.translated);
+    sendSubtitleToWindow(data.original, data.translated, false);
+    return;
+  }
+
+  if (activeSubtitleItem) {
+    activeSubtitleItem.dataset.isStreaming = 'false';
+    updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
+  } else {
+    addFloatingSubtitle(data.original, data.translated);
+  }
+
+  addToHistory(data.original, data.translated);
+  sendSubtitleToWindow(data.original, data.translated, true);
+  activeSubtitleItem = null;
+}
+
+function handleTranslateResult(data) {
+  renderTranslateResult(data);
 }
 
 // 更新字幕显示（流式）

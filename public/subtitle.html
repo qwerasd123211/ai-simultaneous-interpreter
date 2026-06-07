@@ -186,17 +186,41 @@
     // 监听来自主页面的消息
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'subtitle') {
-        addSubtitle(event.data.original, event.data.translated, event.data.time);
+        addSubtitle(event.data.original, event.data.translated, event.data.time, event.data.isFinal !== false);
       }
     });
 
     // 添加字幕
-    function addSubtitle(original, translated, time) {
+    function addSubtitle(original, translated, time, isFinal = true) {
       const subtitleList = document.getElementById('subtitleList');
 
       // 清空占位符
       if (subtitles.length === 0) {
         subtitleList.innerHTML = '';
+      }
+
+      const lastItem = subtitleList.lastElementChild;
+      if (!isFinal && lastItem && lastItem.dataset.isStreaming === 'true') {
+        lastItem.querySelector('.subtitle-original').textContent = original;
+        lastItem.querySelector('.subtitle-translated').textContent = translated;
+        lastItem.querySelector('.subtitle-time').textContent = time;
+
+        const container = document.querySelector('.subtitle-container');
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+
+      if (isFinal && lastItem && lastItem.dataset.isStreaming === 'true') {
+        lastItem.dataset.isStreaming = 'false';
+        lastItem.querySelector('.subtitle-original').textContent = original;
+        lastItem.querySelector('.subtitle-translated').textContent = translated;
+        lastItem.querySelector('.subtitle-time').textContent = time;
+
+        subtitles.push({ original, translated, time });
+
+        const container = document.querySelector('.subtitle-container');
+        container.scrollTop = container.scrollHeight;
+        return;
       }
 
       const subtitle = {
@@ -209,6 +233,7 @@
 
       const subtitleElement = document.createElement('div');
       subtitleElement.className = 'subtitle-item';
+      subtitleElement.dataset.isStreaming = isFinal ? 'false' : 'true';
       subtitleElement.innerHTML = `
         <div class="subtitle-original">${escapeHtml(original)}</div>
         <div class="subtitle-translated">${escapeHtml(translated)}</div>

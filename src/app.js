@@ -22,6 +22,22 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'ai-simultaneous-interpreter',
+    timestamp: new Date().toISOString(),
+    dependencies: {
+      deepseek: Boolean(process.env.DEEPSEEK_API_KEY),
+      xfyun: Boolean(
+        process.env.XFYUN_APPID &&
+        process.env.XFYUN_API_KEY &&
+        process.env.XFYUN_API_SECRET
+      )
+    }
+  });
+});
+
 wss.on('connection', (ws) => {
   console.log('Client connected');
 
@@ -32,6 +48,13 @@ wss.on('connection', (ws) => {
   let lastPartialText = '';
   let isPartialTranslating = false;
   let testTimer = null;
+  let glossary = [];
+
+  let currentSegmentId = 1;
+  let currentRevision = 0;
+  let currentSegmentStartAt = Date.now();
+  let currentSegmentFirstAudioSentAt = null;
+  let lastSegmentText = '';
 
   const sendJson = (payload) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -39,21 +62,61 @@ wss.on('connection', (ws) => {
     }
   };
 
-  const translateAndSend = async (text, isFinal, seq) => {
+  const createSegmentMeta = (text, isFinal) => {
+    currentRevision += 1;
+    const asrAt = Date.now();
+    const corrected = Boolean(lastSegmentText && lastSegmentText !== text);
+    lastSegmentText = text;
+
+    return {
+      segmentId: currentSegmentId,
+      revision: currentRevision,
+      status: isFinal ? (corrected ? 'corrected' : 'confirmed') : (corrected ? 'correcting' : 'recognizing'),
+      corrected,
+      segmentStartedAt: currentSegmentStartAt,
+      firstAudioSentAt: currentSegmentFirstAudioSentAt,
+      asrAt
+    };
+  };
+
+  const finishCurrentSegment = () => {
+    currentSegmentId += 1;
+    currentRevision = 0;
+    currentSegmentStartAt = Date.now();
+    currentSegmentFirstAudioSentAt = null;
+    lastSegmentText = '';
+  };
+
+  const translateAndSend = async (text, isFinal, seq, meta = {}) => {
     if (!text || !text.trim()) return;
 
+    const translateStartedAt = Date.now();
+
     try {
-      const translateResult = await translateService.translate(text);
+      const translateResult = await translateService.translate(text, 'zh', { glossary });
 
       if (!isFinal && seq < latestTranslateSeq) {
         return;
       }
 
+      const translatedAt = Date.now();
+      const latency = {
+        asrMs: meta.firstAudioSentAt ? Math.max(0, meta.asrAt - meta.firstAudioSentAt) : null,
+        translateMs: translatedAt - translateStartedAt,
+        totalMs: meta.firstAudioSentAt ? Math.max(0, translatedAt - meta.firstAudioSentAt) : null
+      };
+
       sendJson({
         type: 'translateResult',
         original: text,
         translated: translateResult.translated,
-        isFinal
+        isFinal,
+        segmentId: meta.segmentId,
+        revision: meta.revision,
+        status: meta.status,
+        corrected: meta.corrected,
+        latency,
+        glossaryUsed: glossary
       });
     } catch (error) {
       console.error('Translate error:', error);
@@ -64,8 +127,9 @@ wss.on('connection', (ws) => {
     }
   };
 
-  const schedulePartialTranslate = (text) => {
+  const schedulePartialTranslate = (text, meta) => {
     lastPartialText = text;
+    schedulePartialTranslate.latestMeta = meta;
 
     if (partialTranslateTimer || isPartialTranslating) {
       return;
@@ -77,14 +141,15 @@ wss.on('connection', (ws) => {
 
       const seq = ++latestTranslateSeq;
       const textToTranslate = lastPartialText;
+      const metaToTranslate = schedulePartialTranslate.latestMeta;
 
       try {
-        await translateAndSend(textToTranslate, false, seq);
+        await translateAndSend(textToTranslate, false, seq, metaToTranslate);
       } finally {
         isPartialTranslating = false;
 
         if (lastPartialText !== textToTranslate) {
-          schedulePartialTranslate(lastPartialText);
+          schedulePartialTranslate(lastPartialText, schedulePartialTranslate.latestMeta);
         }
       }
     }, 500);
@@ -99,14 +164,20 @@ wss.on('connection', (ws) => {
         async (text, isFinal) => {
           if (!text || !text.trim()) return;
 
+          const meta = createSegmentMeta(text, isFinal);
+
           sendJson({
             type: 'transcribeResult',
             text,
-            isFinal
+            isFinal,
+            segmentId: meta.segmentId,
+            revision: meta.revision,
+            status: meta.status,
+            corrected: meta.corrected
           });
 
           if (isFinal) {
-            latestTranslateSeq++;
+            latestTranslateSeq += 1;
             lastPartialText = '';
 
             if (partialTranslateTimer) {
@@ -114,9 +185,10 @@ wss.on('connection', (ws) => {
               partialTranslateTimer = null;
             }
 
-            await translateAndSend(text, true, latestTranslateSeq);
+            await translateAndSend(text, true, latestTranslateSeq, meta);
+            finishCurrentSegment();
           } else {
-            schedulePartialTranslate(text);
+            schedulePartialTranslate(text, meta);
           }
         },
         (error) => {
@@ -143,12 +215,22 @@ wss.on('connection', (ws) => {
       switch (data.type) {
         case 'audio': {
           if (data.data && data.data.length > 0) {
+            if (!currentSegmentFirstAudioSentAt) {
+              currentSegmentFirstAudioSentAt = Number(data.sentAt) || Date.now();
+              currentSegmentStartAt = Date.now();
+            }
+
             const audioChunk = Buffer.from(data.data);
             await startStreamAsr();
             streamAsr.sendAudio(audioChunk, false);
           }
           break;
         }
+
+        case 'config':
+          glossary = Array.isArray(data.glossary) ? data.glossary.slice(0, 30) : [];
+          sendJson({ type: 'configAck', glossary });
+          break;
 
         case 'ping':
           sendJson({ type: 'pong' });
@@ -166,15 +248,65 @@ wss.on('connection', (ws) => {
 
           if (data.enabled) {
             const samples = [
-              { original: 'Welcome to the live translation test.', translated: '欢迎使用实时翻译测试。', isFinal: false },
-              { original: 'Welcome to the live translation test.', translated: '欢迎使用实时翻译测试。', isFinal: true },
-              { original: 'The subtitle window should update immediately.', translated: '字幕窗口应该会立即更新。', isFinal: false },
-              { original: 'The subtitle window should update immediately.', translated: '字幕窗口应该会立即更新。', isFinal: true }
+              {
+                segmentId: 'demo-1',
+                revision: 1,
+                original: 'Kuber net ease can schedule containers.',
+                translated: 'Kuber net ease 可以调度容器。',
+                isFinal: false,
+                status: 'recognizing',
+                corrected: false,
+                latency: { asrMs: 680, translateMs: 240, totalMs: 920 }
+              },
+              {
+                segmentId: 'demo-1',
+                revision: 2,
+                original: 'Kubernetes can schedule containers.',
+                translated: 'Kubernetes 可以调度容器。',
+                isFinal: false,
+                status: 'correcting',
+                corrected: true,
+                latency: { asrMs: 760, translateMs: 250, totalMs: 1010 }
+              },
+              {
+                segmentId: 'demo-1',
+                revision: 3,
+                original: 'Kubernetes can schedule containers.',
+                translated: 'Kubernetes 可以调度容器。',
+                isFinal: true,
+                status: 'corrected',
+                corrected: true,
+                latency: { asrMs: 940, translateMs: 270, totalMs: 1210 }
+              },
+              {
+                segmentId: 'demo-2',
+                revision: 1,
+                original: 'The API gateway reduces latency.',
+                translated: 'API 网关可以降低延迟。',
+                isFinal: false,
+                status: 'recognizing',
+                corrected: false,
+                latency: { asrMs: 640, translateMs: 230, totalMs: 870 }
+              },
+              {
+                segmentId: 'demo-2',
+                revision: 2,
+                original: 'The API gateway reduces latency.',
+                translated: 'API 网关可以降低延迟。',
+                isFinal: true,
+                status: 'confirmed',
+                corrected: false,
+                latency: { asrMs: 830, translateMs: 220, totalMs: 1050 }
+              }
             ];
             let index = 0;
 
             testTimer = setInterval(() => {
-              sendJson({ type: 'translateResult', ...samples[index] });
+              sendJson({
+                type: 'translateResult',
+                glossaryUsed: glossary,
+                ...samples[index]
+              });
               index = (index + 1) % samples.length;
             }, 900);
           }
@@ -199,6 +331,7 @@ wss.on('connection', (ws) => {
       clearTimeout(partialTranslateTimer);
       partialTranslateTimer = null;
     }
+
     if (testTimer) {
       clearInterval(testTimer);
       testTimer = null;

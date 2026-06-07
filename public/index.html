@@ -105,7 +105,7 @@
           </button>
           <button class="btn btn-secondary" id="testBtn" onclick="toggleTestMode()">
             <span class="btn-icon">🧪</span>
-            <span>测试字幕</span>
+            <span>演示模式</span>
           </button>
         </div>
         <div class="progress-container">
@@ -116,6 +116,31 @@
             <span class="progress-percent" id="progressPercent">0%</span>
             <span class="progress-status" id="status">等待开始翻译...</span>
           </div>
+        </div>
+        <div class="live-metrics">
+          <div class="metric-card">
+            <span class="metric-label">ASR</span>
+            <strong id="asrLatency">-- ms</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">翻译</span>
+            <strong id="translateLatency">-- ms</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">总延迟</span>
+            <strong id="totalLatency">-- ms</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">修正</span>
+            <strong id="revisionStatus">待命</strong>
+          </div>
+        </div>
+        <div class="glossary-panel">
+          <label for="glossaryInput">术语表 / 技术词保护</label>
+          <textarea id="glossaryInput" rows="3" spellcheck="false">Kubernetes => Kubernetes
+API => API
+React => React</textarea>
+          <p>每行一个术语，格式为 <code>英文 => 中文/保留词</code>。翻译时会优先遵守这里的技术词。</p>
         </div>
       </section>
 

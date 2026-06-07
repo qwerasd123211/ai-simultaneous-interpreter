@@ -1,217 +1,163 @@
 # LINGUA // AI 同声传译助手
 
-实时语音翻译工具，帮助用户降低语言门槛，提升信息获取效率。
+LINGUA 是一个面向英语视频、演讲、网课和技术分享的 AI 同声传译网页工具。用户点击开始翻译后，选择正在播放英文内容的浏览器标签页或窗口，并勾选共享音频，系统会实时识别英文音频流、翻译成中文，并在主页面与悬浮字幕窗口中显示。
 
-## 🌐 在线演示
+## 演示入口
 
-**🔗 在线访问**：https://ai-simultaneous-interpreter.up.railway.app/
+- 在线演示: https://ai-simultaneous-interpreter.up.railway.app/
+- Demo 视频: 提交前将公开视频链接放到这里
 
-> 无需安装，直接访问即可体验完整功能！
+## 核心能力
 
-## ✨ 功能特性
+| 能力 | 当前实现 |
+| --- | --- |
+| 单向音频流采集 | 前端通过 `getDisplayMedia` 捕获浏览器标签页/窗口音频，并转换为 16kHz PCM |
+| 实时语音识别 | 后端使用讯飞流式 ASR WebSocket，持续接收音频帧并返回中间/最终识别结果 |
+| 实时中文翻译 | 后端调用 DeepSeek 翻译英文识别文本，前端通过 WebSocket 实时刷新字幕 |
+| 悬浮字幕 | 支持独立字幕窗口和 Document Picture-in-Picture，便于覆盖在视频页面旁边观看 |
+| 自动修正 | 支持讯飞 `wpgs` 动态修正，按 `sn/rg` 片段合并，避免快语速时覆盖前文 |
+| 快语速优化 | 中间结果翻译节流降至 220ms，ASR 静音断句阈值降至 500ms，减少等待和漏句 |
+| 术语表 | 前端可配置 `英文 => 中文/保留词`，后端翻译时优先遵守技术术语 |
+| 实时指标 | 展示 ASR、翻译、总延迟和修正状态，便于评估同传体验 |
+| 历史与导出 | 保存最终字幕记录，支持导出 SRT 字幕文件 |
+| 健康检查 | `/health` 返回服务状态与关键依赖配置状态 |
 
-### 核心功能
+## 使用方式
 
-| 功能 | 说明 |
-|------|------|
-| 音频文件上传 | 支持 MP3、WAV、MP4 等格式 |
-| 语音识别 | 英语音频转文字（支持讯飞、DeepSeek） |
-| 实时翻译 | 英文翻译成中文，延迟 <500ms |
-| 字幕显示 | 实时显示中文字幕，支持滚动 |
-| 自动纠错 | 纠正之前翻译错误 |
-| 历史记录 | 保存翻译历史，支持本地存储 |
-| 导出功能 | 导出 SRT 字幕文件 |
+1. 运行服务后打开 `http://localhost:3000/`。
+2. 点击“开始翻译”。
+3. 在浏览器弹出的共享选择器里选择正在播放英文内容的标签页或窗口。
+4. 勾选“共享音频”。
+5. 播放英文朗读、演讲或网课，中文翻译会出现在主页面和悬浮字幕窗口。
+6. 可在术语表中添加技术词，例如 `Kubernetes => Kubernetes`，再重新开始翻译。
 
-### 增强功能
+> 注意：不要直接打开 `public/index.html`。如果误用本地文件方式打开，页面会尝试自动跳转到 `http://localhost:3000/`。
 
-| 功能 | 说明 |
-|------|------|
-| 拖拽上传 | 支持拖拽文件到上传区域 |
-| 进度显示 | 实时显示翻译进度 |
-| WebSocket | 实时通信，低延迟 |
-| 响应式设计 | 支持桌面和移动端 |
+## 本地启动
 
-## 🛠️ 技术栈
+### 环境要求
 
-- **后端**: Node.js + Express + WebSocket
-- **前端**: HTML + CSS + JavaScript（无框架依赖）
-- **语音识别**: 讯飞语音 API / DeepSeek API
-- **翻译**: DeepSeek API
-- **实时通信**: WebSocket (ws)
-- **文件上传**: Multer
+- Node.js 18+
+- DeepSeek API Key
+- 讯飞语音识别 AppID、API Key、API Secret
 
-## 🚀 快速开始
-
-### 前置条件
-
-- Node.js >= 18
-- DeepSeek API Key（[获取地址](https://platform.deepseek.com/)）
-
-### 安装
+### 安装依赖
 
 ```bash
-# 克隆仓库
-git clone https://github.com/qwerasd123211/ai-simultaneous-interpreter.git
-cd ai-simultaneous-interpreter
-
-# 安装依赖
 npm install
 ```
 
-### 配置
+### 配置环境变量
 
-复制环境变量模板并填入你的 API Key：
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 文件：
+复制 `.env.example` 为 `.env`，填写云端服务密钥：
 
 ```env
-# DeepSeek API Key（必需）
 DEEPSEEK_API_KEY=sk-xxxxx
 
-# 讯飞语音 API（可选，用于语音识别）
 XFYUN_APPID=xxxxx
 XFYUN_API_KEY=xxxxx
 XFYUN_API_SECRET=xxxxx
 
-# 服务器端口（可选，默认 3000）
 PORT=3000
 ```
 
-### 启动
+### 启动服务
 
 ```bash
 npm start
 ```
 
-访问 http://localhost:3000 即可使用。
+访问：
 
-## 📖 使用方法
-
-### 上传音频
-
-1. 点击上传区域或拖拽音频文件
-2. 支持 MP3、WAV、MP4 格式
-3. 最大文件大小：50MB
-
-### 开始翻译
-
-1. 上传文件后，点击"开始翻译"
-2. 系统自动识别语音并翻译
-3. 实时显示中文字幕
-
-### 导出字幕
-
-1. 点击"导出"按钮
-2. 下载 SRT 格式字幕文件
-3. 可用于视频编辑软件
-
-## 📁 项目结构
-
+```text
+http://localhost:3000/
 ```
+
+健康检查：
+
+```text
+http://localhost:3000/health
+```
+
+## 项目结构
+
+```text
 ai-simultaneous-interpreter/
-├── src/
-│   ├── app.js              # Express 服务器 + WebSocket
-│   └── services/
-│       ├── asr.js          # 语音识别服务
-│       └── translate.js    # 翻译服务
-├── public/
-│   ├── index.html          # 前端页面
-│   ├── style.css           # 样式文件（Terminal 美学）
-│   └── app.js              # 前端交互逻辑
-├── uploads/                # 上传文件目录
-├── package.json
-├── .env.example
-├── .gitignore
-└── README.md
+├─ src/
+│  ├─ app.js                    # Express 服务、WebSocket、音频流处理与字幕推送
+│  └─ services/
+│     ├─ stream-asr.js           # 讯飞流式 ASR、动态修正片段合并
+│     └─ translate.js            # DeepSeek 翻译、术语表提示词、Mock fallback
+├─ public/
+│  ├─ index.html                 # 同传工作台页面
+│  ├─ style.css                  # 工作台样式
+│  ├─ app.js                     # 前端音频采集、WebSocket、字幕渲染
+│  └─ subtitle.html              # 普通弹窗字幕页面
+├─ package.json
+├─ .env.example
+└─ README.md
 ```
 
-## 🏗️ 架构设计
+## 技术实现
 
+### 音频流链路
+
+前端从共享标签页/窗口中拿到音频轨道，通过 `AudioContext` 和 `ScriptProcessorNode` 获取 PCM 数据，降采样到 16kHz 后每约 100ms 发送一次 WebSocket 音频包。
+
+### ASR 修正链路
+
+讯飞流式 ASR 开启 `dwa: 'wpgs'` 后会返回动态修正片段。项目在 `stream-asr.js` 中维护 `resultTextMap`，按 `sn` 保存片段，遇到 `pgs: 'rpl'` 与 `rg` 范围时只替换对应片段，再按序拼接完整文本。这能避免快语速场景下“后一个修正片段覆盖前面句子”的漏句问题。
+
+### 翻译链路
+
+后端将 ASR 中间结果与最终结果送入 DeepSeek 翻译。中间结果用于尽快显示，最终结果用于确认和写入历史记录。术语表会作为提示词附加给翻译服务，提升技术演讲、网课中的专有词一致性。
+
+### 字幕呈现
+
+主页面、页面内浮层、独立字幕窗口和 Picture-in-Picture 字幕都按 `segmentId` 更新同一条字幕，因此修正结果会原地刷新，而不是不断新增重复字幕。
+
+## 验证方式
+
+```bash
+node --check src/app.js
+node --check src/services/stream-asr.js
+node --check src/services/translate.js
+node --check public/app.js
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   前端界面   │────>│ Express 服务器 │────>│ 语音识别 API │
-│  (HTML/JS)  │<────│  (WebSocket)  │<────│ DeepSeek API│
-└─────────────┘     └──────────────┘     └─────────────┘
-```
 
-**请求流程**：
+手动验证：
 
-1. 用户上传音频文件
-2. 后端调用语音识别 API，获取英文文本
-3. 调用 DeepSeek API 翻译成中文
-4. 通过 WebSocket 实时推送字幕
-5. 前端显示中文字幕
+- 打开 `http://localhost:3000/`，点击开始翻译。
+- 选择英文视频标签页并勾选共享音频。
+- 播放语速较快的英文朗读，观察字幕是否持续更新且不丢前文。
+- 点击“演示模式”，观察自动修正、延迟指标和术语表效果。
+- 打开 `/health`，确认服务依赖配置状态。
 
-## 🎯 设计思路
+## 第三方依赖与原创部分
 
-### 语音识别
+第三方依赖：
 
-- 支持多种音频格式（MP3、WAV、MP4）
-- 使用成熟的 ASR API（讯飞、DeepSeek）
-- 支持实时流式识别（未来扩展）
+| 依赖 | 用途 |
+| --- | --- |
+| express | Web 服务 |
+| ws | WebSocket 通信 |
+| cors | 跨域处理 |
+| dotenv | 环境变量 |
+| node-fetch | 调用 DeepSeek API |
+| multer | 保留的文件处理中间件 |
 
-### 翻译质量
+原创实现：
 
-- 使用 DeepSeek API，中文理解优秀
-- 保持原文语气和意思
-- 专业术语准确
+- 浏览器标签页音频采集与 PCM 降采样发送
+- WebSocket 音频流接入与字幕推送
+- 讯飞 `wpgs` 动态修正片段合并
+- DeepSeek 翻译提示词与术语表保护
+- 悬浮字幕窗口、Picture-in-Picture 字幕和主页面工作台
+- 快语速场景下的字幕连续性优化
 
-### 实时性
+## 已知限制
 
-- WebSocket 实时通信
-- 流式处理音频
-- 延迟 <500ms
-
-### 用户体验
-
-- 拖拽上传，操作简单
-- 实时进度显示
-- 历史记录保存
-- 字幕导出功能
-
-## 📝 环境变量说明
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `DEEPSEEK_API_KEY` | 是 | - | DeepSeek API Key |
-| `XFYUN_APPID` | 否 | - | 讯飞语音 AppID |
-| `XFYUN_API_KEY` | 否 | - | 讯飞语音 API Key |
-| `XFYUN_API_SECRET` | 否 | - | 讯飞语音 API Secret |
-| `PORT` | 否 | `3000` | 服务器监听端口 |
-
-## 📦 依赖说明
-
-| 依赖 | 版本 | 用途 |
-|------|------|------|
-| express | ^4.18.2 | Web 框架 |
-| ws | ^8.16.0 | WebSocket |
-| multer | ^1.4.5 | 文件上传 |
-| node-fetch | ^2.7.0 | HTTP 请求 |
-| cors | ^2.8.5 | 跨域处理 |
-| dotenv | ^16.3.1 | 环境变量 |
-
-## 🔮 未来扩展
-
-| 方向 | 说明 |
-|------|------|
-| 实时语音识别 | 支持麦克风实时录音 |
-| 多语言支持 | 支持日语、韩语等 |
-| 语音合成 | 中文语音输出 |
-| 字幕样式 | 自定义字幕颜色、大小 |
-| 批量处理 | 支持多个文件批量翻译 |
-
-## 👨‍💻 作者
-
-**张顺** - 七牛云实训学员
-
-## 📄 许可证
-
-MIT License
-
-## 🙏 致谢
-
-感谢七牛云提供的实训机会，感谢 DeepSeek 提供的 AI 能力支持。
+- 浏览器共享音频能力依赖浏览器实现，建议使用 Chrome 或 Edge。
+- 评审体验需要后端已配置可用的 DeepSeek 与讯飞密钥。
+- 当前聚焦单向英语音频到中文字幕，不包含中文语音播报。
+- Demo 视频链接需要在最终提交前补充到 README 顶部。

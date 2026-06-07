@@ -23,6 +23,7 @@ class StreamAsrService {
     this.onClose = null;
     this.status = 0; // 0=未开始, 1=进行中, 2=结束
     this.pendingAudio = []; // 连接前的待发送音频
+    this.resultTextMap = new Map();
     this.lastActivityTime = Date.now();
     this.silenceTimer = null;
   }
@@ -40,6 +41,7 @@ class StreamAsrService {
     this.onClose = onClose;
     this.isFirstFrame = true;
     this.resultText = '';
+    this.resultTextMap = new Map();
     this.status = 0;
     this.pendingAudio = [];
     this.lastActivityTime = Date.now();
@@ -170,7 +172,7 @@ class StreamAsrService {
           language: 'en_us',
           domain: 'iat',
           accent: 'mandarin',
-          vad_eos: 800,  // 短静音切分，减少实时字幕等待时间
+          vad_eos: 500,  // 短静音切分，减少实时字幕等待时间
           dwa: 'wpgs'
         };
         this.isFirstFrame = false;
@@ -205,24 +207,14 @@ class StreamAsrService {
       if (response.data && response.data.result) {
         const resultData = response.data.result;
         if (resultData.ws) {
-          let text = '';
-          resultData.ws.forEach(ws => {
-            ws.cw.forEach(cw => {
-              text += cw.w;
-            });
-          });
-
-          if (resultData.pgs === 'apd') {
-            this.resultText += text;
-          } else {
-            this.resultText = text;
-          }
+          const text = this.extractText(resultData);
+          const mergedText = this.mergeResultText(resultData, text);
 
           const isFinal = response.data.status === 2;
-          console.log(`[StreamASR] 识别结果${isFinal ? '(最终)' : '(中间)'}:`, this.resultText);
+          console.log(`[StreamASR] 识别结果${isFinal ? '(最终)' : '(中间)'}:`, mergedText);
 
           if (this.onResult) {
-            this.onResult(this.resultText, isFinal);
+            this.onResult(mergedText, isFinal);
           }
         }
       }
@@ -243,10 +235,50 @@ class StreamAsrService {
   /**
    * 重置以开始下一段识别
    */
+  extractText(resultData) {
+    let text = '';
+
+    resultData.ws.forEach((ws) => {
+      ws.cw.forEach((cw) => {
+        text += cw.w;
+      });
+    });
+
+    return text;
+  }
+
+  mergeResultText(resultData, text) {
+    const sn = Number(resultData.sn);
+    const segmentNo = Number.isFinite(sn) ? sn : this.resultTextMap.size + 1;
+
+    if (resultData.pgs === 'rpl' && Array.isArray(resultData.rg)) {
+      const [start, end] = resultData.rg.map(Number);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        for (const key of Array.from(this.resultTextMap.keys())) {
+          if (key >= start && key <= end) {
+            this.resultTextMap.delete(key);
+          }
+        }
+      }
+    }
+
+    if (text) {
+      this.resultTextMap.set(segmentNo, text);
+    }
+
+    this.resultText = Array.from(this.resultTextMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, value]) => value)
+      .join('');
+
+    return this.resultText;
+  }
+
   resetForNextSegment() {
     console.log('[StreamASR] 重置以开始下一段识别');
     this.isFirstFrame = true;
     this.resultText = '';
+    this.resultTextMap = new Map();
     this.status = 0;
     // 保持连接，只重置状态
   }

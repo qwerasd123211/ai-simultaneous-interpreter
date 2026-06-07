@@ -152,7 +152,7 @@ wss.on('connection', (ws) => {
           schedulePartialTranslate(lastPartialText, schedulePartialTranslate.latestMeta);
         }
       }
-    }, 500);
+    }, 220);
   };
 
   const startStreamAsr = async () => {

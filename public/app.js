@@ -19,6 +19,7 @@ let keepWindowOnTopInterval = null;
 let pipAnimationId = null;
 let currentSubtitleOriginal = '';
 let currentSubtitleTranslated = '';
+let subtitleItemsBySegment = new Map();
 
 // DOM 元素
 const elements = {
@@ -29,7 +30,12 @@ const elements = {
   progressPercent: null,
   status: null,
   subtitleContainer: null,
-  historyList: null
+  historyList: null,
+  asrLatency: null,
+  translateLatency: null,
+  totalLatency: null,
+  revisionStatus: null,
+  glossaryInput: null
 };
 
 // ============================================
@@ -38,10 +44,53 @@ const elements = {
 
 document.addEventListener('DOMContentLoaded', () => {
   initElements();
+  redirectFileProtocolToServer();
   initTypingEffect();
   loadHistory();
   createFloatingSubtitle();
 });
+
+function getConfiguredBackendOrigin() {
+  const origin = window.LINGUA_BACKEND_ORIGIN;
+  if (!origin || typeof origin !== 'string') return '';
+
+  return origin.trim().replace(/\/$/, '');
+}
+
+function getServerOrigin() {
+  const configuredOrigin = getConfiguredBackendOrigin();
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  if (window.location.protocol === 'file:') {
+    return 'http://localhost:3000';
+  }
+
+  return window.location.origin;
+}
+
+function getWebSocketUrl() {
+  const serverOrigin = getServerOrigin();
+
+  return serverOrigin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+}
+
+async function redirectFileProtocolToServer() {
+  if (window.location.protocol !== 'file:') return;
+
+  const serverOrigin = getServerOrigin();
+  updateStatus(`请通过 ${serverOrigin} 使用实时翻译，正在尝试切换...`);
+
+  try {
+    await fetch(`${serverOrigin}/health`, { cache: 'no-store' });
+    setTimeout(() => {
+      window.location.replace(`${serverOrigin}/`);
+    }, 600);
+  } catch (error) {
+    showError(`当前是本地文件模式，无法连接后端。请先运行 npm start，然后打开 ${serverOrigin}`);
+  }
+}
 
 function initElements() {
   elements.startBtn = document.getElementById('startBtn');
@@ -53,6 +102,11 @@ function initElements() {
   elements.status = document.getElementById('status');
   elements.subtitleContainer = document.getElementById('subtitleContainer');
   elements.historyList = document.getElementById('historyList');
+  elements.asrLatency = document.getElementById('asrLatency');
+  elements.translateLatency = document.getElementById('translateLatency');
+  elements.totalLatency = document.getElementById('totalLatency');
+  elements.revisionStatus = document.getElementById('revisionStatus');
+  elements.glossaryInput = document.getElementById('glossaryInput');
 }
 
 function initTypingEffect() {
@@ -147,6 +201,41 @@ function createFloatingSubtitle() {
       font-family: 'JetBrains Mono', monospace;
     }
 
+    .floating-subtitle-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    .subtitle-status-badge {
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .subtitle-status-badge.correcting,
+    .subtitle-status-badge.corrected {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.5);
+      background: rgba(251, 191, 36, 0.08);
+    }
+
+    .subtitle-status-badge.confirmed {
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.5);
+      background: rgba(52, 211, 153, 0.08);
+    }
+
+    .subtitle-latency {
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -226,6 +315,51 @@ function clearFloatingSubtitle() {
     subtitleList.innerHTML = '';
   }
   subtitles = [];
+  subtitleItemsBySegment.clear();
+}
+
+function parseGlossary() {
+  if (!elements.glossaryInput) return [];
+
+  return elements.glossaryInput.value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.split('=>').map(part => part.trim());
+      return {
+        source: parts[0],
+        target: parts[1] || parts[0]
+      };
+    })
+    .filter(item => item.source)
+    .slice(0, 30);
+}
+
+function getStatusLabel(status, isFinal) {
+  const labels = {
+    recognizing: '识别中',
+    correcting: '修正中',
+    confirmed: '已确认',
+    corrected: '已修正'
+  };
+
+  return labels[status] || (isFinal ? '已确认' : '识别中');
+}
+
+function formatLatency(value) {
+  return typeof value === 'number' ? `${Math.round(value)} ms` : '-- ms';
+}
+
+function updateLiveMetrics(data) {
+  const latency = data.latency || {};
+
+  if (elements.asrLatency) elements.asrLatency.textContent = formatLatency(latency.asrMs);
+  if (elements.translateLatency) elements.translateLatency.textContent = formatLatency(latency.translateMs);
+  if (elements.totalLatency) elements.totalLatency.textContent = formatLatency(latency.totalMs);
+  if (elements.revisionStatus) {
+    elements.revisionStatus.textContent = getStatusLabel(data.status, data.isFinal !== false);
+  }
 }
 
 // ============================================
@@ -399,6 +533,36 @@ function buildPipSubtitleWindow(pipWindow) {
       font-size: 10px;
       font-family: 'JetBrains Mono', monospace;
     }
+    .floating-subtitle-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+    .subtitle-status-badge {
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.78);
+    }
+    .subtitle-status-badge.correcting,
+    .subtitle-status-badge.corrected {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.5);
+      background: rgba(251, 191, 36, 0.08);
+    }
+    .subtitle-status-badge.confirmed {
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.5);
+      background: rgba(52, 211, 153, 0.08);
+    }
+    .subtitle-latency {
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+    }
     .subtitle-placeholder {
       height: 100%;
       display: flex;
@@ -457,7 +621,7 @@ async function openSubtitleWindow() {
     }
 
     // 使用 window.open 打开字幕页面弹窗
-    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    const subtitleUrl = `${getServerOrigin()}/subtitle.html`;
     subtitleWindow = window.open(
       subtitleUrl,
       'LINGUA_Subtitle',
@@ -501,7 +665,7 @@ async function openSubtitleWindow() {
   } catch (error) {
     console.warn('打开画中画字幕窗口失败，回退到普通弹窗:', error);
 
-    const subtitleUrl = `${window.location.origin}/subtitle.html`;
+    const subtitleUrl = `${getServerOrigin()}/subtitle.html`;
     subtitleWindow = window.open(
       subtitleUrl,
       'LINGUA_Subtitle',
@@ -627,8 +791,8 @@ async function toggleTestMode() {
     // 开启测试模式
     isTestMode = true;
     elements.testBtn.classList.add('active');
-    elements.testBtn.querySelector('span:last-child').textContent = '停止测试';
-    updateStatus('测试模式已开启，正在发送模拟字幕...');
+    elements.testBtn.querySelector('span:last-child').textContent = '停止演示';
+    updateStatus('演示模式已开启，正在展示自动修正和延迟指标...');
 
     // 打开字幕窗口
     await openSubtitleWindow();
@@ -650,8 +814,8 @@ async function toggleTestMode() {
     // 关闭测试模式
     isTestMode = false;
     elements.testBtn.classList.remove('active');
-    elements.testBtn.querySelector('span:last-child').textContent = '测试字幕';
-    updateStatus('测试模式已关闭');
+    elements.testBtn.querySelector('span:last-child').textContent = '演示模式';
+    updateStatus('演示模式已关闭');
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'test', enabled: false }));
     }
@@ -722,14 +886,17 @@ function stopTranslation() {
 // ============================================
 
 function connectWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+  const wsUrl = getWebSocketUrl();
 
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     console.log('WebSocket 已连接');
     updateStatus('正在识别语音...');
+    ws.send(JSON.stringify({
+      type: 'config',
+      glossary: parseGlossary()
+    }));
 
     // 开始录制音频
     startAudioCapture();
@@ -747,6 +914,9 @@ function connectWebSocket() {
         break;
       case 'error':
         showError(data.message);
+        break;
+      case 'configAck':
+        console.log('术语表已同步:', data.glossary);
         break;
     }
   };
@@ -865,7 +1035,8 @@ function startAudioCapture() {
           const bytes = new Uint8Array(downsampled.buffer);
           ws.send(JSON.stringify({
             type: 'audio',
-            data: Array.from(bytes)
+            data: Array.from(bytes),
+            sentAt: Date.now()
           }));
         }
       }
@@ -898,21 +1069,26 @@ function handleTranscribeResult(data) {
   console.log('识别结果:', data.text, data.isFinal ? '(最终)' : '(中间)');
 }
 
-function sendSubtitleToWindow(original, translated, isFinal) {
+function sendSubtitleToWindow(data) {
   if (!subtitleWindow || subtitleWindow.closed) return;
 
   if (subtitleWindowMode === 'pip') {
     if (!pipSubtitleList) return;
-    renderPipSubtitle(original, translated, isFinal);
+    renderPipSubtitle(data);
     return;
   }
 
   try {
     subtitleWindow.postMessage({
       type: 'subtitle',
-      original,
-      translated,
-      isFinal,
+      original: data.original,
+      translated: data.translated,
+      isFinal: data.isFinal !== false,
+      segmentId: data.segmentId,
+      revision: data.revision,
+      status: data.status,
+      corrected: data.corrected,
+      latency: data.latency,
       time: new Date().toLocaleTimeString()
     }, '*');
   } catch (e) {
@@ -932,42 +1108,54 @@ function clearPipSubtitles() {
   `;
 }
 
-function renderPipSubtitle(original, translated, isFinal) {
+function renderPipSubtitle(data) {
   if (!pipSubtitleList) return;
 
   if (pipSubtitleRecords.length === 0) {
     pipSubtitleList.innerHTML = '';
   }
 
+  const isFinal = data.isFinal !== false;
+  const segmentId = data.segmentId || 'active';
   const time = new Date().toLocaleTimeString();
-  let lastItem = pipSubtitleList.lastElementChild;
+  let item = pipSubtitleList.querySelector(`[data-segment-id="${String(segmentId)}"]`);
 
-  if (lastItem && lastItem.dataset.isStreaming === 'true') {
-    lastItem.querySelector('.subtitle-original').textContent = original;
-    lastItem.querySelector('.subtitle-translated').textContent = translated;
-    lastItem.querySelector('.subtitle-time').textContent = time;
-
-    if (isFinal) {
-      lastItem.dataset.isStreaming = 'false';
-      pipSubtitleRecords.push({ original, translated, time });
-    }
-  } else {
-    const item = subtitleWindow.document.createElement('div');
+  if (!item) {
+    item = subtitleWindow.document.createElement('div');
     item.className = 'subtitle-item';
-    item.dataset.isStreaming = isFinal ? 'false' : 'true';
+    item.dataset.segmentId = segmentId;
     item.innerHTML = `
       <div class="subtitle-original"></div>
       <div class="subtitle-translated"></div>
-      <div class="subtitle-time"></div>
+      <div class="floating-subtitle-meta">
+        <span class="subtitle-status-badge"></span>
+        <span class="subtitle-latency"></span>
+        <span class="subtitle-time"></span>
+      </div>
     `;
-    item.querySelector('.subtitle-original').textContent = original;
-    item.querySelector('.subtitle-translated').textContent = translated;
-    item.querySelector('.subtitle-time').textContent = time;
     pipSubtitleList.appendChild(item);
+  }
 
-    if (isFinal) {
-      pipSubtitleRecords.push({ original, translated, time });
-    }
+  item.dataset.isStreaming = isFinal ? 'false' : 'true';
+  item.querySelector('.subtitle-original').textContent = data.original || '';
+  item.querySelector('.subtitle-translated').textContent = data.translated || '';
+  item.querySelector('.subtitle-time').textContent = time;
+
+  const badge = item.querySelector('.subtitle-status-badge');
+  badge.className = `subtitle-status-badge ${data.status || ''}`;
+  badge.textContent = getStatusLabel(data.status, isFinal);
+
+  const latency = item.querySelector('.subtitle-latency');
+  latency.textContent = data.latency && typeof data.latency.totalMs === 'number'
+    ? `总延迟 ${Math.round(data.latency.totalMs)} ms`
+    : '';
+
+  if (isFinal) {
+    pipSubtitleRecords.push({
+      original: data.original,
+      translated: data.translated,
+      time
+    });
   }
 
   while (pipSubtitleList.children.length > 20) {
@@ -979,23 +1167,19 @@ function renderPipSubtitle(original, translated, isFinal) {
 
 function renderTranslateResult(data) {
   const isFinal = data.isFinal !== false;
+  updateLiveMetrics(data);
 
-  if (!isFinal) {
-    activeSubtitleItem = addOrUpdateFloatingSubtitle(data.original, data.translated);
-    sendSubtitleToWindow(data.original, data.translated, false);
-    return;
-  }
+  activeSubtitleItem = addOrUpdateFloatingSubtitle(data);
+  sendSubtitleToWindow(data);
 
-  if (activeSubtitleItem) {
+  if (isFinal && activeSubtitleItem) {
     activeSubtitleItem.dataset.isStreaming = 'false';
-    updateSubtitleDisplay(activeSubtitleItem, data.original, data.translated);
-  } else {
-    addFloatingSubtitle(data.original, data.translated);
   }
 
-  addToHistory(data.original, data.translated);
-  sendSubtitleToWindow(data.original, data.translated, true);
-  activeSubtitleItem = null;
+  if (isFinal) {
+    addToHistory(data.original, data.translated);
+    activeSubtitleItem = null;
+  }
 }
 
 function handleTranslateResult(data) {
@@ -1003,41 +1187,61 @@ function handleTranslateResult(data) {
 }
 
 // 更新字幕显示（流式）
-function updateSubtitleDisplay(element, original, translated) {
+function updateSubtitleDisplay(element, data) {
   if (!element) return;
 
   const originalEl = element.querySelector('.floating-subtitle-original');
   const translatedEl = element.querySelector('.floating-subtitle-translated');
+  const timeEl = element.querySelector('.floating-subtitle-time');
+  const badgeEl = element.querySelector('.subtitle-status-badge');
+  const latencyEl = element.querySelector('.subtitle-latency');
+  const isFinal = data.isFinal !== false;
 
-  if (originalEl) originalEl.textContent = original;
-  if (translatedEl) translatedEl.textContent = translated;
+  if (originalEl) originalEl.textContent = data.original || '';
+  if (translatedEl) translatedEl.textContent = data.translated || '';
+  if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+  if (badgeEl) {
+    badgeEl.className = `subtitle-status-badge ${data.status || ''}`;
+    badgeEl.textContent = getStatusLabel(data.status, isFinal);
+  }
+  if (latencyEl) {
+    latencyEl.textContent = data.latency && typeof data.latency.totalMs === 'number'
+      ? `总延迟 ${Math.round(data.latency.totalMs)} ms`
+      : '';
+  }
 }
 
 // 添加或更新浮动字幕（返回元素引用）
-function addOrUpdateFloatingSubtitle(original, translated) {
+function addOrUpdateFloatingSubtitle(data) {
   const subtitleList = document.getElementById('floatingSubtitleList');
   if (!subtitleList) return null;
 
-  // 查找最后一个字幕元素
-  const lastItem = subtitleList.lastElementChild;
+  const segmentId = data.segmentId || 'active';
+  let subtitleElement = subtitleItemsBySegment.get(segmentId);
 
-  if (lastItem && lastItem.dataset.isStreaming === 'true') {
-    // 更新最后一个字幕
-    updateSubtitleDisplay(lastItem, original, translated);
-    return lastItem;
+  if (subtitleElement) {
+    updateSubtitleDisplay(subtitleElement, data);
+    return subtitleElement;
   }
 
   // 创建新字幕元素
-  const subtitleElement = document.createElement('div');
+  subtitleElement = document.createElement('div');
   subtitleElement.className = 'floating-subtitle-item';
-  subtitleElement.dataset.isStreaming = 'true';
+  subtitleElement.dataset.isStreaming = data.isFinal === false ? 'true' : 'false';
+  subtitleElement.dataset.segmentId = segmentId;
   subtitleElement.innerHTML = `
-    <div class="floating-subtitle-original">${escapeHtml(original)}</div>
-    <div class="floating-subtitle-translated">${escapeHtml(translated)}</div>
-    <div class="floating-subtitle-time">${new Date().toLocaleTimeString()}</div>
+    <div class="floating-subtitle-original"></div>
+    <div class="floating-subtitle-translated"></div>
+    <div class="floating-subtitle-meta">
+      <span class="subtitle-status-badge"></span>
+      <span class="subtitle-latency"></span>
+      <span class="floating-subtitle-time"></span>
+    </div>
   `;
+  updateSubtitleDisplay(subtitleElement, data);
 
   subtitleList.appendChild(subtitleElement);
+  subtitleItemsBySegment.set(segmentId, subtitleElement);
 
   // 滚动到底部
   const floatingDiv = document.getElementById('floatingSubtitle');
@@ -1048,7 +1252,9 @@ function addOrUpdateFloatingSubtitle(original, translated) {
   // 限制显示数量
   const items = subtitleList.children;
   if (items.length > 10) {
-    subtitleList.removeChild(items[0]);
+    const removed = items[0];
+    subtitleItemsBySegment.delete(removed.dataset.segmentId);
+    subtitleList.removeChild(removed);
   }
 
   return subtitleElement;
@@ -1110,6 +1316,43 @@ function clearHistory() {
   history = [];
   localStorage.removeItem('translationHistory');
   updateHistoryDisplay();
+}
+
+function clearSubtitles() {
+  clearFloatingSubtitle();
+  if (elements.subtitleContainer) {
+    elements.subtitleContainer.innerHTML = `
+      <div class="subtitle-placeholder">
+        <p>等待翻译开始...</p>
+        <p class="placeholder-hint">点击"开始翻译"并选择要翻译的窗口</p>
+      </div>
+    `;
+  }
+}
+
+function exportSubtitles() {
+  const records = history.slice().reverse();
+  if (records.length === 0) {
+    alert('没有可导出的字幕');
+    return;
+  }
+
+  let srt = '';
+  records.forEach((record, index) => {
+    const start = String(index * 2).padStart(2, '0');
+    const end = String((index + 1) * 2).padStart(2, '0');
+    srt += `${index + 1}\n`;
+    srt += `00:00:${start},000 --> 00:00:${end},000\n`;
+    srt += `${record.translated}\n\n`;
+  });
+
+  const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'lingua-subtitles.srt';
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================

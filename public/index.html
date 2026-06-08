@@ -6,184 +6,143 @@
   <title>LINGUA // AI 同声传译</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 背景效果 -->
-  <div class="bg-gradient"></div>
-  <div class="bg-grid"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">L</span>
+        <div>
+          <h1>LINGUA</h1>
+          <p class="tagline-text">AI 同声传译助手</p>
+        </div>
+      </div>
 
-  <div class="container">
-    <!-- 头部 -->
-    <header class="header">
-      <div class="logo-container">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-            <path d="M2 17l10 5 10-5"/>
-            <path d="M2 12l10 5 10-5"/>
-          </svg>
-        </div>
-        <div class="logo-text">
-          <span class="logo-main">LINGUA</span>
-          <span class="logo-sub">// AI 同声传译</span>
-        </div>
-      </div>
-      <div class="header-tagline">
-        <span class="tagline-cursor">></span>
-        <span class="tagline-text">实时语音翻译，打破语言障碍</span>
-      </div>
-      <div class="header-stats">
-        <div class="stat">
-          <span class="stat-label">引擎</span>
-          <span class="stat-value">DEEPSEEK-V4-PRO</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">状态</span>
-          <span class="stat-value status-active">在线</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">延迟</span>
-          <span class="stat-value">&lt;500ms</span>
-        </div>
+      <div class="topbar-status" aria-label="服务状态">
+        <span class="status-pill is-online">服务在线</span>
+        <span class="status-pill">实时音频流</span>
+        <span class="status-pill">自动修正</span>
       </div>
     </header>
 
-    <!-- 主要内容 -->
-    <main class="main">
-      <!-- 使用说明 -->
-      <section class="guide-section">
-        <div class="section-header">
-          <div class="section-icon">📖</div>
-          <h2>使用说明</h2>
-          <div class="section-line"></div>
-        </div>
-        <div class="guide-grid">
-          <div class="guide-card">
-            <div class="guide-step">1</div>
-            <h3>点击开始翻译</h3>
-            <p>系统会请求屏幕共享权限</p>
-          </div>
-          <div class="guide-card">
-            <div class="guide-step">2</div>
-            <h3>选择窗口</h3>
-            <p>选择要翻译的视频窗口或标签页</p>
-          </div>
-          <div class="guide-card">
-            <div class="guide-step">3</div>
-            <h3>勾选共享音频</h3>
-            <p>确保勾选"共享音频"选项</p>
-          </div>
-          <div class="guide-card">
-            <div class="guide-step">4</div>
-            <h3>实时字幕</h3>
-            <p>系统自动识别并翻译，显示中文字幕</p>
+    <main class="workspace">
+      <section class="panel control-panel" aria-labelledby="controlTitle">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">CONTROL</p>
+            <h2 id="controlTitle">翻译控制</h2>
           </div>
         </div>
-      </section>
 
-      <!-- 控制区域 -->
-      <section class="control-section">
-        <div class="section-header">
-          <div class="section-icon">🎮</div>
-          <h2>翻译控制</h2>
-          <div class="section-line"></div>
-        </div>
         <div class="control-buttons">
           <button class="btn btn-primary" id="startBtn" onclick="startTranslation()">
-            <span class="btn-icon">▶</span>
+            <span class="btn-icon" aria-hidden="true">▶</span>
             <span>开始翻译</span>
           </button>
           <button class="btn btn-secondary" id="pauseBtn" onclick="pauseTranslation()" disabled>
-            <span class="btn-icon">⏸</span>
+            <span class="btn-icon" aria-hidden="true">Ⅱ</span>
             <span>暂停</span>
           </button>
           <button class="btn btn-danger" id="stopBtn" onclick="stopTranslation()" disabled>
-            <span class="btn-icon">⏹</span>
+            <span class="btn-icon" aria-hidden="true">■</span>
             <span>停止</span>
           </button>
           <button class="btn btn-secondary" id="testBtn" onclick="toggleTestMode()">
-            <span class="btn-icon">🧪</span>
-            <span>测试字幕</span>
+            <span class="btn-icon" aria-hidden="true">◆</span>
+            <span>演示模式</span>
           </button>
         </div>
-        <div class="progress-container">
-          <div class="progress-bar">
+
+        <div class="status-box">
+          <div class="status-line">
+            <span id="status">等待开始翻译...</span>
+            <strong id="progressPercent">0%</strong>
+          </div>
+          <div class="progress-bar" aria-hidden="true">
             <div class="progress-fill" id="progressFill"></div>
           </div>
-          <div class="progress-info">
-            <span class="progress-percent" id="progressPercent">0%</span>
-            <span class="progress-status" id="status">等待开始翻译...</span>
-          </div>
+        </div>
+
+        <div class="glossary-panel">
+          <label for="glossaryInput">术语表</label>
+          <textarea id="glossaryInput" rows="5" spellcheck="false">Kubernetes => Kubernetes
+API => API
+React => React</textarea>
+          <p>每行一个术语，格式为 <code>英文 => 中文/保留词</code>。</p>
         </div>
       </section>
 
-      <!-- 字幕显示区域 -->
-      <section class="subtitle-section">
-        <div class="section-header">
-          <div class="section-icon">📺</div>
-          <h2>实时字幕</h2>
+      <section class="panel subtitle-panel" aria-labelledby="subtitleTitle">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">LIVE CAPTION</p>
+            <h2 id="subtitleTitle">实时字幕</h2>
+          </div>
           <div class="subtitle-controls">
             <button class="btn-small" onclick="clearSubtitles()">清空</button>
             <button class="btn-small" onclick="exportSubtitles()">导出</button>
           </div>
         </div>
+
         <div class="subtitle-container" id="subtitleContainer">
           <div class="subtitle-placeholder">
-            <div class="placeholder-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
+            <strong>字幕将在这里实时出现</strong>
+            <p>点击开始翻译后，选择带音频的英文视频窗口或标签页。</p>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-stack">
+        <section class="panel metrics-panel" aria-labelledby="metricsTitle">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">LATENCY</p>
+              <h2 id="metricsTitle">实时指标</h2>
             </div>
-            <p>等待翻译开始...</p>
-            <p class="placeholder-hint">点击"开始翻译"并选择要翻译的窗口</p>
           </div>
-        </div>
-      </section>
 
-      <!-- 历史记录 -->
-      <section class="history-section">
-        <div class="section-header">
-          <div class="section-icon">📝</div>
-          <h2>翻译历史</h2>
-          <button class="btn-small" onclick="clearHistory()">清空</button>
-        </div>
-        <div class="history-list" id="historyList">
-          <div class="history-placeholder">
-            <p>暂无翻译记录</p>
+          <div class="live-metrics">
+            <div class="metric-card">
+              <span class="metric-label">ASR</span>
+              <strong id="asrLatency">-- ms</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">翻译</span>
+              <strong id="translateLatency">-- ms</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">总延迟</span>
+              <strong id="totalLatency">-- ms</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">修正</span>
+              <strong id="revisionStatus">待命</strong>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section class="panel history-panel" aria-labelledby="historyTitle">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">LOG</p>
+              <h2 id="historyTitle">翻译历史</h2>
+            </div>
+            <button class="btn-small" onclick="clearHistory()">清空</button>
+          </div>
+
+          <div class="history-list" id="historyList">
+            <div class="history-placeholder">
+              <p>暂无翻译记录</p>
+            </div>
+          </div>
+        </section>
+      </aside>
     </main>
-
-    <!-- 页脚 -->
-    <footer class="footer">
-      <div class="footer-content">
-        <div class="footer-logo">
-          <span class="footer-bracket">[</span>
-          <span>LINGUA</span>
-          <span class="footer-bracket">]</span>
-        </div>
-        <div class="footer-info">
-          <p>AI 同声传译助手 - 七牛云实训项目</p>
-          <p class="footer-tech">Node.js + DeepSeek API + WebSocket</p>
-        </div>
-        <div class="footer-author">
-          <span class="author-label">开发者</span>
-          <span class="author-name">张顺</span>
-        </div>
-      </div>
-      <div class="footer-line"></div>
-      <div class="footer-copyright">
-        <span>© 2026 LINGUA SYSTEMS</span>
-        <span class="footer-version">v1.0.0</span>
-      </div>
-    </footer>
   </div>
 
+  <script src="/api/config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
